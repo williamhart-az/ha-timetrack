@@ -127,12 +127,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if card_path.exists():
         card_url = f"/{DOMAIN}/timetrack-card.js"
         from homeassistant.components.http import StaticPathConfig
-        from homeassistant.components.frontend import add_extra_js_url
         await hass.http.async_register_static_paths(
             [StaticPathConfig(card_url, str(card_path), False)]
         )
-        add_extra_js_url(hass, card_url)
-        _LOGGER.info("Registered Lovelace card: %s", card_url)
+
+        # Register as a Lovelace resource so the card auto-loads on all dashboards
+        try:
+            lovelace = hass.data["lovelace"]
+            resources = lovelace.resources
+            # Check if already registered (idempotent)
+            existing = [
+                r for r in resources.async_items()
+                if r.get("url", "").startswith(card_url)
+            ]
+            if not existing:
+                await resources.async_create_item(
+                    {"res_type": "module", "url": card_url}
+                )
+                _LOGGER.info("Registered Lovelace card resource: %s", card_url)
+            else:
+                _LOGGER.debug("Lovelace card resource already registered")
+        except Exception as exc:
+            _LOGGER.warning("Could not auto-register card resource: %s", exc)
     else:
         _LOGGER.debug("Card JS not found at %s — skipping", card_path)
 

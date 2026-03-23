@@ -3,6 +3,7 @@
   "name": "TimeTrack",
   "codeowners": ["@williamhart"],
   "config_flow": true,
+  "dependencies": ["frontend", "http", "lovelace"],
   "documentation": "https://github.com/williamhart-az/ha-timetrack",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/williamhart-az/ha-timetrack/issues",
