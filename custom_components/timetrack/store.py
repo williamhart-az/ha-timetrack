@@ -93,6 +93,16 @@ class TimeTrackStore:
         conn.close()
         return row["service_item_id"] if row else None
 
+    def get_service_item_for_rate(self, rate_id: str) -> str | None:
+        """Get the ServiceItemId for a given rate UUID."""
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT service_item_id FROM service_item_rates WHERE id = ? LIMIT 1",
+            (rate_id,),
+        ).fetchone()
+        conn.close()
+        return row["service_item_id"] if row else None
+
     def _build_svc_to_customer_map(self, service_items: list[dict]) -> dict:
         """Build ServiceItemId → customer short_name map.
 

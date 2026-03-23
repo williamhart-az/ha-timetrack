@@ -483,7 +483,7 @@ class TimeTrackCard extends HTMLElement {
           </div>
         </div>
 
-        ${this._createTicketExpanded ? this._createTicketPanel(customers) : ""}
+        ${this._createTicketExpanded ? this._createTicketPanel(customers, rates) : ""}
         ${this._addClientExpanded ? this._addClientPanel(customers, rates) : ""}
 
         ${clients.length === 0 ? `<div class="empty">No clients mapped yet.<br>Click "+ Add" above.</div>` : ""}
@@ -603,7 +603,7 @@ class TimeTrackCard extends HTMLElement {
     `;
   }
 
-  _createTicketPanel(customers) {
+  _createTicketPanel(customers, rates) {
     const now = new Date();
     const month = now.toLocaleString("en-US", { month: "long" });
     const year = now.getFullYear();
@@ -619,6 +619,17 @@ class TimeTrackCard extends HTMLElement {
             ${customers.map(c => `
               <option value="${c.short}">
                 ${c.short} — ${c.name}
+              </option>
+            `).join("")}
+          </select>
+        </div>
+
+        <div class="form-row">
+          <label>Service Item / Rate</label>
+          <select class="sel" data-bind="create-rate">
+            ${rates.map(r => `
+              <option value="${r.id}">
+                ${r.name} ($${r.rate})
               </option>
             `).join("")}
           </select>
@@ -830,11 +841,14 @@ class TimeTrackCard extends HTMLElement {
       const customer = this.shadowRoot.querySelector("[data-bind='create-customer']")?.value;
       const title = this.shadowRoot.querySelector("[data-bind='create-title']")?.value;
       const description = this.shadowRoot.querySelector("[data-bind='create-description']")?.value;
+      const rateId = this.shadowRoot.querySelector("[data-bind='create-rate']")?.value;
 
       if (!customer) { alert("Select a customer"); return; }
       if (!title) { alert("Enter a ticket title"); return; }
 
-      this._svc("create_ticket", { customer, title, description: description || "" });
+      const data = { customer, title, description: description || "" };
+      if (rateId) data.service_item_rate_id = rateId;
+      this._svc("create_ticket", data);
       this._createTicketExpanded = false;
 
       // Auto-sync after a short delay to pick up the new ticket

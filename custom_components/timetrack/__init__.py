@@ -493,11 +493,18 @@ def _register_services(
         customer_short = call.data.get("customer")
         title = call.data.get("title")
         description = call.data.get("description", "")
+        rate_id = call.data.get("service_item_rate_id")
 
-        # Look up ServiceItemId for this customer
-        svc_id = await hass.async_add_executor_job(
-            store.get_service_item_for_customer, customer_short
-        )
+        # Resolve ServiceItemId: from selected rate, or from client's default rate
+        svc_id = None
+        if rate_id:
+            svc_id = await hass.async_add_executor_job(
+                store.get_service_item_for_rate, rate_id
+            )
+        if not svc_id:
+            svc_id = await hass.async_add_executor_job(
+                store.get_service_item_for_customer, customer_short
+            )
         if not svc_id:
             _LOGGER.error("No ServiceItemId found for customer '%s'", customer_short)
             return
@@ -553,6 +560,7 @@ def _register_services(
             vol.Required("customer"): cv.string,
             vol.Required("title"): cv.string,
             vol.Optional("description", default=""): cv.string,
+            vol.Optional("service_item_rate_id"): cv.string,
         }),
     )
 
