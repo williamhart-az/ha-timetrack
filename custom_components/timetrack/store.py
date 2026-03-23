@@ -63,14 +63,21 @@ class TimeTrackStore:
     ALERT_SERVICE_ITEM_IDS = set()
 
     def get_service_item_for_customer(self, customer_short: str) -> str | None:
-        """Get the ServiceItemId for a customer short name (from DB)."""
+        """Get the ServiceItemId for a customer short name.
+
+        Joins: msp_customers.id → msp_service_items.customer_id → service_item_id
+        """
         conn = self._connect()
         row = conn.execute(
-            "SELECT id FROM msp_customers WHERE short_name = ? AND is_active = 1 LIMIT 1",
+            """SELECT si.service_item_id
+               FROM msp_customers c
+               JOIN msp_service_items si ON si.customer_id = c.id
+               WHERE c.short_name = ? AND c.is_active = 1
+               LIMIT 1""",
             (customer_short,),
         ).fetchone()
         conn.close()
-        return row["id"] if row else None
+        return row["service_item_id"] if row else None
 
     def _build_svc_to_customer_map(self, service_items: list[dict]) -> dict:
         """Build ServiceItemId → customer short_name map.
@@ -125,6 +132,11 @@ class TimeTrackStore:
                 name TEXT NOT NULL,
                 short_name TEXT NOT NULL,
                 is_active INTEGER DEFAULT 1
+            );
+
+            CREATE TABLE IF NOT EXISTS msp_service_items (
+                service_item_id TEXT PRIMARY KEY,
+                customer_id TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS msp_tickets (
@@ -221,6 +233,11 @@ class TimeTrackStore:
             name TEXT NOT NULL,
             short_name TEXT,
             is_active INTEGER DEFAULT 1
+        )""")
+        # Migrate: ensure msp_service_items table exists (added in v0.3.4)
+        conn.execute("""CREATE TABLE IF NOT EXISTS msp_service_items (
+            service_item_id TEXT PRIMARY KEY,
+            customer_id TEXT NOT NULL
         )""")
         # No hardcoded seed data — rates, customers, and tickets are
         # populated from the MSP Manager API at startup.
@@ -358,6 +375,28 @@ class TimeTrackStore:
         conn.commit()
         conn.close()
         _LOGGER.info("Synced %d customers", count)
+        return count
+
+    def sync_service_items(self, api_items: list[dict]) -> int:
+        """Sync service items from MSP Manager API.
+
+        Stores ServiceItemId → CustomerId mapping for ticket creation and tagging.
+        """
+        conn = self._connect()
+        conn.execute("DELETE FROM msp_service_items")
+        count = 0
+        for si in api_items:
+            sid = si.get("ServiceItemId")
+            cid = si.get("CustomerId")
+            if sid and cid:
+                conn.execute(
+                    "INSERT OR REPLACE INTO msp_service_items (service_item_id, customer_id) VALUES (?, ?)",
+                    (sid, cid),
+                )
+                count += 1
+        conn.commit()
+        conn.close()
+        _LOGGER.info("Synced %d service items", count)
         return count
 
     def get_default_rate_for_service_item(self, service_item_id: str) -> Optional[str]:

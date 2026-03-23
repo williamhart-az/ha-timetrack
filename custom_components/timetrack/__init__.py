@@ -527,8 +527,10 @@ def _register_services(
             description=description,
         )
         if result:
+            # Fetch service items for customer tagging
+            svc_items = await msp_client.fetch_service_items()
             # Upsert the new ticket into local DB
-            await hass.async_add_executor_job(store.upsert_tickets, [result])
+            await hass.async_add_executor_job(store.upsert_tickets, [result], svc_items)
             hass.bus.async_fire("timetrack_ticket_created", {
                 "ticket_id": result.get("TicketId"),
                 "title": title,
@@ -538,7 +540,7 @@ def _register_services(
             try:
                 tickets = await msp_client.fetch_tickets(active_only=True)
                 if tickets:
-                    await hass.async_add_executor_job(store.upsert_tickets, tickets)
+                    await hass.async_add_executor_job(store.upsert_tickets, tickets, svc_items)
                     _LOGGER.info("🔄 Auto-synced tickets after creation")
             except Exception as err:
                 _LOGGER.warning("Auto-sync after ticket creation failed: %s", err)
@@ -653,6 +655,9 @@ def _register_services(
             service_items = []
             try:
                 service_items = await msp_client.fetch_service_items()
+                if service_items:
+                    count = await hass.async_add_executor_job(store.sync_service_items, service_items)
+                    _LOGGER.info("🚀 Startup: synced %d service items from MSP Manager", count)
             except Exception as exc:
                 _LOGGER.warning("Startup service items fetch failed: %s", exc)
             try:
