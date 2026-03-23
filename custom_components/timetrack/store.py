@@ -282,6 +282,17 @@ class TimeTrackStore:
                    default_description = excluded.default_description""",
             (name, zone_name, msp_ticket_id, msp_service_item_rate_id, msp_client_name, default_description),
         )
+        # Cascade: update pending entries to use the new default ticket
+        if msp_ticket_id:
+            updated = conn.execute(
+                """UPDATE time_entries
+                   SET msp_ticket_id = ?
+                   WHERE client_name = ?
+                     AND push_status IN ('pending', 'failed')""",
+                (msp_ticket_id, name),
+            ).rowcount
+            if updated:
+                _LOGGER.info("Updated %d pending entries for %s → ticket %s", updated, name, msp_ticket_id)
         conn.commit()
         conn.close()
 
