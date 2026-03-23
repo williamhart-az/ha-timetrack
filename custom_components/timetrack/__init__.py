@@ -345,6 +345,8 @@ def _register_services(
             store.add_client, client, zone, ticket_id,
             service_item_rate_id, msp_client_name, default_description,
         )
+        # Force a state update so the frontend immediately sees the new client
+        tracker._notify_listeners()
         _LOGGER.info("Mapped client %s → MSP ticket %s", client, ticket_id)
 
     async def handle_push_entries(call: ServiceCall) -> None:
