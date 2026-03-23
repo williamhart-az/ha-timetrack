@@ -122,6 +122,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Set up platforms (sensors)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
+    # ── Auto-register Lovelace card ──
+    card_path = Path(__file__).parent / "timetrack-card.js"
+    if card_path.exists():
+        card_url = f"/{DOMAIN}/timetrack-card.js"
+        from homeassistant.components.http import StaticPathConfig
+        from homeassistant.components.frontend import add_extra_js_url
+        await hass.http.async_register_static_paths(
+            [StaticPathConfig(card_url, str(card_path), False)]
+        )
+        add_extra_js_url(hass, card_url)
+        _LOGGER.info("Registered Lovelace card: %s", card_url)
+    else:
+        _LOGGER.debug("Card JS not found at %s — skipping", card_path)
+
     # Register services
     _register_services(hass, store, tracker, msp_client, rounding, msp_dry_run, authorized_user_id, person_entity)
 
