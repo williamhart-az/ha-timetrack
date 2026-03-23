@@ -580,7 +580,7 @@ def _register_services(
 
         result = await hass.async_add_executor_job(
             store.generate_entries_from_history,
-            start_date, end_date, mid, rounding,
+            start_date, end_date, mid, rounding_minutes,
         )
         _LOGGER.info(
             "📊 Generated %d entries (%d skipped, %d errors) for %s → %s",
