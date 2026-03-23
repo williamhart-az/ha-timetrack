@@ -1,0 +1,35 @@
+{
+    "title": "TimeTrack",
+    "config": {
+        "step": {
+            "user": {
+                "title": "TimeTrack Setup",
+                "description": "Configure automatic time tracking via HA zones.",
+                "data": {
+                    "person_entity": "Person entity to track",
+                    "msp_manager_url": "MSP Manager API URL (e.g. https://api.mspmanager.com/odata)",
+                    "msp_manager_api_key": "MSP Manager API Key",
+                    "msp_dry_run": "Dry Run (log only, don't push to MSP Manager)",
+                    "rounding_minutes": "Round to nearest (minutes)",
+                    "min_session_minutes": "Minimum session length (minutes)"
+                }
+            }
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "TimeTrack Settings",
+                "description": "Update time tracking and MSP Manager settings.",
+                "data": {
+                    "person_entity": "Person entity to track",
+                    "msp_manager_url": "MSP Manager URL",
+                    "msp_manager_api_key": "MSP Manager API Key",
+                    "msp_dry_run": "Dry Run (log only, don't push to MSP Manager)",
+                    "rounding_minutes": "Round to nearest (minutes)",
+                    "min_session_minutes": "Minimum session length (minutes)"
+                }
+            }
+        }
+    }
+}

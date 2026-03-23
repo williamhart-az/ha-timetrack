@@ -1,0 +1,196 @@
+clock_in:
+  name: Clock In
+  description: Manually clock in to a client.
+  fields:
+    client:
+      name: Client
+      description: The client name to clock in for.
+      required: true
+      example: "LAT"
+      selector:
+        text:
+    zone:
+      name: Zone
+      description: Override the zone name (optional).
+      required: false
+      selector:
+        text:
+
+clock_out:
+  name: Clock Out
+  description: Clock out the current active time entry.
+
+report:
+  name: Generate Report
+  description: Generate a monthly time report.
+  fields:
+    year:
+      name: Year
+      description: Report year (defaults to current).
+      required: false
+      selector:
+        number:
+          min: 2020
+          max: 2030
+    month:
+      name: Month
+      description: Report month (defaults to current).
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 12
+
+map_client:
+  name: Map Client to MSP Ticket
+  description: Map a client zone to an MSP Manager ticket.
+  fields:
+    client:
+      name: Client
+      description: Local client short name.
+      required: true
+      example: "LAT"
+      selector:
+        text:
+    ticket_id:
+      name: Ticket ID (UUID)
+      description: MSP Manager ticket UUID.
+      required: true
+      selector:
+        text:
+    service_item_rate_id:
+      name: Service Item Rate ID
+      description: Defaults to "Onsite Network Engineer:8-5 M-F".
+      required: false
+      selector:
+        text:
+    msp_client_name:
+      name: MSP Client Name
+      description: Client name in MSP Manager (for reference).
+      required: false
+      selector:
+        text:
+    zone:
+      name: Zone Override
+      description: Override zone name.
+      required: false
+      selector:
+        text:
+    default_description:
+      name: Default Description
+      description: Auto-fills for entries with no description when pushing.
+      required: false
+      selector:
+        text:
+
+push_entries:
+  name: Push Entries to MSP Manager
+  description: Batch push pending time entries. Leave entry_ids empty to push all.
+  fields:
+    entry_ids:
+      name: Entry IDs
+      description: Specific entry IDs to push (empty = all pending).
+      required: false
+      example: "[1, 2, 3]"
+      selector:
+        object:
+
+edit_entry:
+  name: Edit Entry
+  description: Edit a pending entry's description or ticket before pushing.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: The time entry ID to edit.
+      required: true
+      selector:
+        number:
+          min: 1
+    description:
+      name: Description
+      description: New description for the time entry.
+      required: false
+      selector:
+        text:
+    ticket_id:
+      name: Ticket ID
+      description: Reassign to a different MSP Manager ticket UUID.
+      required: false
+      selector:
+        text:
+
+sync_tickets:
+  name: Sync Tickets
+  description: Sync active tickets from MSP Manager.
+
+create_ticket:
+  name: Create Ticket
+  description: Create a new ticket in MSP Manager.
+  fields:
+    customer:
+      name: Customer
+      description: Customer short name (e.g. LAT, DI, GGA).
+      required: true
+      example: "LAT"
+      selector:
+        text:
+    title:
+      name: Title
+      description: The ticket title.
+      required: true
+      example: "Monthly Onsite - March 2026"
+      selector:
+        text:
+    description:
+      name: Description
+      description: Optional ticket description.
+      required: false
+      selector:
+        text:
+
+generate_entries:
+  name: Generate Entries from History
+  description: Generate time entries from HA zone history for a date range.
+  fields:
+    start_date:
+      name: Start Date
+      description: Start date (YYYY-MM-DD).
+      required: true
+      example: "2026-03-01"
+      selector:
+        text:
+    end_date:
+      name: End Date
+      description: End date (YYYY-MM-DD).
+      required: true
+      example: "2026-03-31"
+      selector:
+        text:
+
+add_zone_alias:
+  name: Add Zone Alias
+  description: Map an HA zone state to a client name for entry generation.
+  fields:
+    zone_state:
+      name: Zone State
+      description: The exact HA zone state string (e.g. "KGYR-LAT").
+      required: true
+      selector:
+        text:
+    client_name:
+      name: Client Name
+      description: Client short name to map to.
+      required: true
+      selector:
+        text:
+
+remove_zone_alias:
+  name: Remove Zone Alias
+  description: Remove a zone alias mapping.
+  fields:
+    zone_state:
+      name: Zone State
+      description: The zone state to unmap.
+      required: true
+      selector:
+        text:
