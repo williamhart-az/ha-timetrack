@@ -80,7 +80,7 @@ class MSPManagerClient:
             "$top": str(top),
             "$orderby": "CreatedDate desc",
             "$select": "TicketId,TicketNumber,Title,TicketStatusCode,"
-                       "ServiceItemId,CustomerId,CreatedDate,CompletedDate",
+                       "ServiceItemId,CreatedDate,CompletedDate",
         }
         if active_only:
             # Exclude only Completed(7) and Cancelled(9)
@@ -127,6 +127,31 @@ class MSPManagerClient:
                     return []
         except Exception as exc:
             _LOGGER.error("Error fetching service item rates: %s", exc)
+            return []
+
+    async def fetch_service_items(self) -> list:
+        """Fetch service items from MSP Manager.
+
+        Returns ServiceItemId → CustomerId mapping data.
+        Each customer's ServiceItem links tickets to their customer.
+        """
+        session = await self._get_session()
+        try:
+            async with session.get(
+                f"{self.base_url}/ServiceItems",
+                params={"$select": "ServiceItemId,CustomerId"},
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    items = data if isinstance(data, list) else data.get("value", [])
+                    _LOGGER.info("Fetched %d service items from MSP Manager", len(items))
+                    return items
+                else:
+                    body = await resp.text()
+                    _LOGGER.error("Failed to fetch service items: HTTP %d — %s", resp.status, body[:200])
+                    return []
+        except Exception as exc:
+            _LOGGER.error("Error fetching service items: %s", exc)
             return []
 
     async def fetch_customers(self) -> list:

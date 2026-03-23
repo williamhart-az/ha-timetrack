@@ -72,14 +72,27 @@ class TimeTrackStore:
         conn.close()
         return row["id"] if row else None
 
-    def _get_customer_short_map(self) -> dict:
-        """Build CustomerId → customer short_name map from DB."""
+    def _build_svc_to_customer_map(self, service_items: list[dict]) -> dict:
+        """Build ServiceItemId → customer short_name map.
+
+        Chain: ServiceItem.ServiceItemId → ServiceItem.CustomerId → Customer.short_name
+        """
+        # Step 1: CustomerId → short_name from msp_customers
         conn = self._connect()
         rows = conn.execute(
             "SELECT id, short_name FROM msp_customers WHERE is_active = 1"
         ).fetchall()
         conn.close()
-        return {r["id"]: r["short_name"] for r in rows}
+        cust_map = {r["id"]: r["short_name"] for r in rows}
+
+        # Step 2: ServiceItemId → CustomerId → short_name
+        svc_map = {}
+        for si in service_items:
+            sid = si.get("ServiceItemId", "")
+            cid = si.get("CustomerId", "")
+            if sid and cid and cid in cust_map:
+                svc_map[sid] = cust_map[cid]
+        return svc_map
 
     def _init_db(self):
         """Create tables if they don't exist."""
@@ -963,16 +976,19 @@ class TimeTrackStore:
         conn.close()
         return [dict(r) for r in rows]
 
-    def upsert_tickets(self, tickets: list[dict]) -> int:
+    def upsert_tickets(self, tickets: list[dict], service_items: list[dict] | None = None) -> int:
         """Insert or update tickets from MSP Manager API response.
 
         Also marks any local tickets NOT in the API results as 'deleted'.
 
         Args:
             tickets: Raw ticket dicts from MSP Manager OData API.
+            service_items: Raw service item dicts for ServiceItemId→CustomerId mapping.
         Returns:
             Number of tickets upserted.
         """
+        # Build ServiceItemId → customer short_name map
+        svc_to_customer = self._build_svc_to_customer_map(service_items or [])
         conn = self._connect()
         count = 0
         synced_ids = set()
@@ -982,8 +998,7 @@ class TimeTrackStore:
                 continue
             synced_ids.add(ticket_id)
             svc_id = t.get("ServiceItemId", "")
-            customer_id = t.get("CustomerId", "")
-            customer_short = self._get_customer_short_map().get(customer_id, "")
+            customer_short = svc_to_customer.get(svc_id, "")
             completed = t.get("CompletedDate")
             status = "closed" if completed else "open"
             is_alert = 1 if svc_id in self.ALERT_SERVICE_ITEM_IDS else 0

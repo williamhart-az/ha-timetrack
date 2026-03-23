@@ -417,9 +417,12 @@ def _register_services(
         if not msp_client.is_configured:
             _LOGGER.warning("MSP Manager not configured — cannot sync tickets")
             return
+        service_items = await msp_client.fetch_service_items()
         tickets = await msp_client.fetch_tickets(active_only=True)
         if tickets:
-            count = await hass.async_add_executor_job(store.upsert_tickets, tickets)
+            count = await hass.async_add_executor_job(
+                store.upsert_tickets, tickets, service_items
+            )
             _LOGGER.info("🔄 Synced %d active tickets from MSP Manager", count)
             hass.bus.async_fire("timetrack_tickets_synced", {"count": count})
         else:
@@ -646,10 +649,18 @@ def _register_services(
                     _LOGGER.info("🚀 Startup: synced %d customers from MSP Manager", count)
             except Exception as exc:
                 _LOGGER.warning("Startup customer sync failed: %s", exc)
+            # Service items provide ServiceItemId → CustomerId mapping
+            service_items = []
+            try:
+                service_items = await msp_client.fetch_service_items()
+            except Exception as exc:
+                _LOGGER.warning("Startup service items fetch failed: %s", exc)
             try:
                 tickets = await msp_client.fetch_tickets(active_only=True)
                 if tickets:
-                    count = await hass.async_add_executor_job(store.upsert_tickets, tickets)
+                    count = await hass.async_add_executor_job(
+                        store.upsert_tickets, tickets, service_items
+                    )
                     _LOGGER.info("🚀 Startup: synced %d active tickets from MSP Manager", count)
             except Exception as exc:
                 _LOGGER.warning("Startup ticket sync failed: %s", exc)
