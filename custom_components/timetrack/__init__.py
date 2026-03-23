@@ -211,7 +211,7 @@ async def _push_single_entry(
     """Push a single pending entry to MSP Manager."""
     entry_id = entry["id"]
     ticket_id = entry.get("resolved_ticket_id") or entry.get("msp_ticket_id")
-    rate_id = entry.get("resolved_rate_id") or entry.get("msp_service_item_rate_id") or store.get_default_rate_id()
+    rate_id = entry.get("msp_rate_id") or entry.get("resolved_rate_id") or entry.get("msp_service_item_rate_id") or store.get_default_rate_id()
     client_name = entry["client_name"]
     # Description priority: entry description > client default > generic fallback
     client_info = await hass.async_add_executor_job(
@@ -389,6 +389,7 @@ def _register_services(
         description = call.data.get("description")
         ticket_id = call.data.get("ticket_id")
         billable = call.data.get("billable")
+        rate_id = call.data.get("rate_id")
 
         # Validate ticket-client association
         if ticket_id:
@@ -408,7 +409,7 @@ def _register_services(
                     return
 
         await hass.async_add_executor_job(
-            store.update_entry, entry_id, description, ticket_id, billable
+            store.update_entry, entry_id, description, ticket_id, billable, rate_id
         )
         _LOGGER.info("Updated entry %d", entry_id)
 
@@ -476,6 +477,7 @@ def _register_services(
             vol.Optional("description"): cv.string,
             vol.Optional("ticket_id"): cv.string,
             vol.Optional("billable"): cv.boolean,
+            vol.Optional("rate_id"): cv.string,
         }),
     )
 

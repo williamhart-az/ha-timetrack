@@ -168,7 +168,7 @@ class TimeTrackCard extends HTMLElement {
           ${this._tabs()}
           <div class="tc">
             ${this._activeTab === "status" ? this._tabStatus(entries) : ""}
-            ${this._activeTab === "pending" ? this._tabPending(pendingEntries, clients, tickets) : ""}
+            ${this._activeTab === "pending" ? this._tabPending(pendingEntries, clients, tickets, rates) : ""}
             ${this._activeTab === "clients" ? this._tabClients(clients, rates, customers, tickets, aliases) : ""}
           </div>
         </div>
@@ -376,7 +376,7 @@ class TimeTrackCard extends HTMLElement {
 
   // ── Tab: Pending ──
 
-  _tabPending(entries, clients, tickets) {
+  _tabPending(entries, clients, tickets, rates) {
     const pending = entries.filter(e => e.push_status === "pending");
     const failed = entries.filter(e => e.push_status === "failed");
     const all = [...pending, ...failed];
@@ -390,16 +390,18 @@ class TimeTrackCard extends HTMLElement {
           ` : ""}
         </div>
         ${all.length === 0 ? `<div class="empty">All caught up! 🎉</div>` : ""}
-        ${all.map(e => this._pendingCard(e, tickets)).join("")}
+        ${all.map(e => this._pendingCard(e, tickets, rates)).join("")}
       </div>
     `;
   }
 
-  _pendingCard(e, tickets) {
+  _pendingCard(e, tickets, rates) {
     // Filter tickets to only show those matching this entry's client
     const clientTickets = tickets.filter(t => !t.customer || t.customer === e.client);
     const openTickets = clientTickets.filter(t => t.status === "open");
     const closedTickets = clientTickets.filter(t => t.status !== "open");
+    // Determine current rate (per-entry override or client default)
+    const currentRate = e.msp_rate_id || e.msp_service_item_rate_id || "";
     return `
       <div class="pcard ${e.push_status === 'failed' ? 'pcard-fail' : ''}">
         <div class="pc-top">
@@ -436,6 +438,17 @@ class TimeTrackCard extends HTMLElement {
                 </option>
               `).join("")}
             </optgroup>` : ""}
+          </select>
+        </div>
+
+        <div class="pc-field">
+          <label>Rate</label>
+          <select class="sel rate-sel" data-eid="${e.id}">
+            ${rates.map(r => `
+              <option value="${r.id}" ${currentRate === r.id ? "selected" : ""}>
+                ${r.name} ($${r.rate})
+              </option>
+            `).join("")}
           </select>
         </div>
 
@@ -781,6 +794,16 @@ class TimeTrackCard extends HTMLElement {
         this._svc("edit_entry", {
           entry_id: parseInt(sel.dataset.eid),
           ticket_id: sel.value,
+        });
+      });
+    });
+
+    // Rate dropdown change on pending entries
+    $(".rate-sel").forEach(sel => {
+      sel.addEventListener("change", () => {
+        this._svc("edit_entry", {
+          entry_id: parseInt(sel.dataset.eid),
+          rate_id: sel.value,
         });
       });
     });

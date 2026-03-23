@@ -65,9 +65,23 @@ class TimeTrackStore:
     def get_service_item_for_customer(self, customer_short: str) -> str | None:
         """Get the ServiceItemId for a customer short name.
 
-        Joins: msp_customers.id → msp_service_items.customer_id → service_item_id
+        Primary: clients.msp_service_item_rate_id → service_item_rates.service_item_id
+        Fallback: msp_customers → msp_service_items (first match)
         """
         conn = self._connect()
+        # Primary: use the client's mapped rate to find the correct service item
+        row = conn.execute(
+            """SELECT sir.service_item_id
+               FROM clients cl
+               JOIN service_item_rates sir ON sir.id = cl.msp_service_item_rate_id
+               WHERE cl.name = ? AND cl.active = 1
+               LIMIT 1""",
+            (customer_short,),
+        ).fetchone()
+        if row:
+            conn.close()
+            return row["service_item_id"]
+        # Fallback: any service item for this customer
         row = conn.execute(
             """SELECT si.service_item_id
                FROM msp_customers c
@@ -161,6 +175,7 @@ class TimeTrackStore:
                 msp_ticket_id TEXT,
                 msp_synced INTEGER DEFAULT 0,
                 push_status TEXT DEFAULT 'pending',
+                msp_rate_id TEXT,
                 raw_hours REAL,
                 rounded_hours REAL,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -194,6 +209,7 @@ class TimeTrackStore:
         for col, typ, default in [
             ("description", "TEXT", "''"),
             ("push_status", "TEXT", "'pending'"),
+            ("msp_rate_id", "TEXT", None),
         ]:
             try:
                 stmt = f"ALTER TABLE time_entries ADD COLUMN {col} {typ}"
@@ -950,8 +966,9 @@ class TimeTrackStore:
         description: str = None,
         msp_ticket_id: str = None,
         billable: bool = None,
+        msp_rate_id: str = None,
     ) -> bool:
-        """Update an entry's description, ticket, or billable flag before push."""
+        """Update an entry's description, ticket, rate, or billable flag before push."""
         conn = self._connect()
         updates = []
         params = []
@@ -964,6 +981,9 @@ class TimeTrackStore:
         if billable is not None:
             updates.append("billable = ?")
             params.append(1 if billable else 0)
+        if msp_rate_id is not None:
+            updates.append("msp_rate_id = ?")
+            params.append(msp_rate_id)
         if not updates:
             conn.close()
             return False
