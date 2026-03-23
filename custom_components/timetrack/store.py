@@ -294,13 +294,34 @@ class TimeTrackStore:
             if not customer_id:
                 continue
             name = c.get("CustomerName", "Unknown")
-            # Derive short name: use first word, or initials for multi-word names
-            words = name.split() if name else ["?"]
-            if len(words) == 1:
-                short = words[0]
+            # Derive short name from customer name
+            # Strip noise words and special chars for cleaner abbreviations
+            import re
+            _NOISE = {"llc", "inc", "corp", "ltd", "co", "pcs", "the", "of", "and"}
+            raw = re.sub(r"[,.]", "", name)  # strip punctuation
+            tokens = raw.split()
+            # Filter out noise words and pure numbers
+            clean = [t for t in tokens if t.lower() not in _NOISE and not t.isdigit()]
+            if not clean:
+                clean = tokens[:1] or ["?"]
+            if len(clean) == 1:
+                # Single meaningful word — use as-is (e.g. "LuxAir" → "LuxAir")
+                short = clean[0]
+            elif any("&" in t for t in clean):
+                # Handle ampersands: "G&G Aero" → merge G&G + first letters of rest
+                parts = []
+                for t in clean:
+                    if "&" in t:
+                        parts.append(t.replace("&", ""))  # G&G → GG
+                    else:
+                        parts.append(t[0].upper())
+                short = "".join(parts).upper()
+            elif clean[0].isupper() and len(clean[0]) > 2 and "-" not in clean[0]:
+                # First word is already an acronym-like name (e.g. "LATUS - VLAN 388")
+                short = clean[0]
             else:
-                # Use abbreviation: first letter of each word, uppercase
-                short = "".join(w[0] for w in words if w).upper()
+                # Multi-word: first letter of each, uppercase
+                short = "".join(t[0] for t in clean if t and t[0].isalpha()).upper()
             # CustomerStatusId 1 = active
             is_active = 1 if c.get("CustomerStatusId", 0) == 1 else 0
             conn.execute(

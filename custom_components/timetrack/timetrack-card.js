@@ -527,7 +527,7 @@ class TimeTrackCard extends HTMLElement {
             </select>
             <select class="sel" data-bind="alias-client" style="flex:1">
               <option value="">— Client —</option>
-              ${clients.map(c => `<option value="${c.name}">${c.name}</option>`).join("")}
+              ${customers.map(c => `<option value="${c.short}">${c.short} — ${c.name}</option>`).join("")}
             </select>
             <button class="btn btn-sm btn-accent" data-act="add-alias">+ Add</button>
           </div>

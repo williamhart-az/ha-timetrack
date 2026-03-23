@@ -638,6 +638,14 @@ def _register_services(
     # Auto-sync active tickets and rates from MSP Manager on startup
     if msp_client.is_configured:
         async def _startup_sync(*_):
+            # Customers FIRST — tickets need the customer map for short names
+            try:
+                customers = await msp_client.fetch_customers()
+                if customers:
+                    count = await hass.async_add_executor_job(store.sync_customers, customers)
+                    _LOGGER.info("🚀 Startup: synced %d customers from MSP Manager", count)
+            except Exception as exc:
+                _LOGGER.warning("Startup customer sync failed: %s", exc)
             try:
                 tickets = await msp_client.fetch_tickets(active_only=True)
                 if tickets:
@@ -652,13 +660,6 @@ def _register_services(
                     _LOGGER.info("🚀 Startup: synced %d service item rates from MSP Manager", count)
             except Exception as exc:
                 _LOGGER.warning("Startup rate sync failed: %s", exc)
-            try:
-                customers = await msp_client.fetch_customers()
-                if customers:
-                    count = await hass.async_add_executor_job(store.sync_customers, customers)
-                    _LOGGER.info("🚀 Startup: synced %d customers from MSP Manager", count)
-            except Exception as exc:
-                _LOGGER.warning("Startup customer sync failed: %s", exc)
 
         hass.bus.async_listen_once("homeassistant_started", _startup_sync)
 
