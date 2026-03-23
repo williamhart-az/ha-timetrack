@@ -516,7 +516,15 @@ class TimeTrackCard extends HTMLElement {
             </div>
           `).join("")}
           <div class="alias-add">
-            <input type="text" class="inp" data-bind="alias-zone" placeholder="Zone state (e.g. KGYR-LAT)" style="flex:1" />
+            <select class="sel" data-bind="alias-zone" style="flex:1">
+              <option value="">— Select zone —</option>
+              ${Object.keys(this._hass.states)
+                .filter(e => e.startsWith("zone."))
+                .map(e => {
+                  const name = this._hass.states[e].attributes.friendly_name || e.replace("zone.", "");
+                  return `<option value="${name}">${name}</option>`;
+                }).join("")}
+            </select>
             <select class="sel" data-bind="alias-client" style="flex:1">
               <option value="">— Client —</option>
               ${clients.map(c => `<option value="${c.name}">${c.name}</option>`).join("")}
