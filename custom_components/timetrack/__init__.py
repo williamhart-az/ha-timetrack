@@ -161,10 +161,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
         hass.bus.async_fire("timetrack_entries_generated", result)
 
-    unsub_nightly = async_track_time_change(hass, _nightly_generate, hour=1, minute=0, second=0)
-    hass.data[DOMAIN][entry.entry_id]["unsub_nightly"] = unsub_nightly
-
-    _LOGGER.info("TimeTrack integration loaded — tracking %s (nightly generate at 1:00 AM)", person_entity)
+    try:
+        unsub_nightly = async_track_time_change(hass, _nightly_generate, hour=1, minute=0, second=0)
+        hass.data[DOMAIN][entry.entry_id]["unsub_nightly"] = unsub_nightly
+        _LOGGER.info("TimeTrack integration loaded — tracking %s (nightly generate at 1:00 AM)", person_entity)
+    except Exception as exc:
+        _LOGGER.warning("Nightly scheduler setup failed (non-fatal): %s", exc)
+        _LOGGER.info("TimeTrack integration loaded — tracking %s (nightly generate DISABLED)", person_entity)
     return True
 
 
@@ -266,6 +269,11 @@ def _register_services(
     person_entity: str = "",
 ) -> None:
     """Register TimeTrack services."""
+
+    # Guard: don't re-register services if already registered (reload safety)
+    if hass.services.has_service(DOMAIN, "clock_in"):
+        _LOGGER.debug("Services already registered, skipping")
+        return
 
     async def handle_clock_in(call: ServiceCall) -> None:
         if not _check_auth(call, authorized_user_id):
