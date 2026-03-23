@@ -281,6 +281,39 @@ class TimeTrackStore:
         _LOGGER.info("Synced %d service item rates", count)
         return count
 
+    def sync_customers(self, api_customers: list[dict]) -> int:
+        """Sync customers from MSP Manager API.
+
+        Upserts customer data from GET /customers into the msp_customers table.
+        Derives short_name from CustomerName (first word or abbreviation).
+        """
+        conn = self._connect()
+        count = 0
+        for c in api_customers:
+            customer_id = c.get("CustomerId")
+            if not customer_id:
+                continue
+            name = c.get("CustomerName", "Unknown")
+            # Derive short name: use first word, or initials for multi-word names
+            words = name.split() if name else ["?"]
+            if len(words) == 1:
+                short = words[0]
+            else:
+                # Use abbreviation: first letter of each word, uppercase
+                short = "".join(w[0] for w in words if w).upper()
+            # CustomerStatusId 1 = active
+            is_active = 1 if c.get("CustomerStatusId", 0) == 1 else 0
+            conn.execute(
+                """INSERT OR REPLACE INTO msp_customers (id, name, short_name, is_active)
+                   VALUES (?, ?, ?, ?)""",
+                (customer_id, name, short, is_active),
+            )
+            count += 1
+        conn.commit()
+        conn.close()
+        _LOGGER.info("Synced %d customers", count)
+        return count
+
     def get_default_rate_for_service_item(self, service_item_id: str) -> Optional[str]:
         """Get the default rate ID for a given ServiceItem."""
         conn = self._connect()

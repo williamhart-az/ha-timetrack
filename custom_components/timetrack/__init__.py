@@ -652,6 +652,13 @@ def _register_services(
                     _LOGGER.info("🚀 Startup: synced %d service item rates from MSP Manager", count)
             except Exception as exc:
                 _LOGGER.warning("Startup rate sync failed: %s", exc)
+            try:
+                customers = await msp_client.fetch_customers()
+                if customers:
+                    count = await hass.async_add_executor_job(store.sync_customers, customers)
+                    _LOGGER.info("🚀 Startup: synced %d customers from MSP Manager", count)
+            except Exception as exc:
+                _LOGGER.warning("Startup customer sync failed: %s", exc)
 
         hass.bus.async_listen_once("homeassistant_started", _startup_sync)
 

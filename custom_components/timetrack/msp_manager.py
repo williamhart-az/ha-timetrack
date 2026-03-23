@@ -129,6 +129,30 @@ class MSPManagerClient:
             _LOGGER.error("Error fetching service item rates: %s", exc)
             return []
 
+    async def fetch_customers(self) -> list:
+        """Fetch customers from MSP Manager.
+
+        Returns list of customer objects with CustomerId, CustomerName, ShortName, etc.
+        """
+        session = await self._get_session()
+        try:
+            async with session.get(
+                f"{self.base_url}/customers",
+                params={"$select": "CustomerId,CustomerName,CustomerStatusId"},
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    customers = data if isinstance(data, list) else data.get("value", [])
+                    _LOGGER.info("Fetched %d customers from MSP Manager", len(customers))
+                    return customers
+                else:
+                    body = await resp.text()
+                    _LOGGER.error("Failed to fetch customers: HTTP %d — %s", resp.status, body[:200])
+                    return []
+        except Exception as exc:
+            _LOGGER.error("Error fetching customers: %s", exc)
+            return []
+
     async def create_time_entry(
         self,
         ticket_id: str,
