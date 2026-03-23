@@ -72,8 +72,8 @@ class TimeTrackStore:
         conn.close()
         return row["id"] if row else None
 
-    def _get_svc_to_customer_map(self) -> dict:
-        """Build ServiceItemId → customer short map from DB."""
+    def _get_customer_short_map(self) -> dict:
+        """Build CustomerId → customer short_name map from DB."""
         conn = self._connect()
         rows = conn.execute(
             "SELECT id, short_name FROM msp_customers WHERE is_active = 1"
@@ -197,6 +197,18 @@ class TimeTrackStore:
             conn.execute("ALTER TABLE time_entries ADD COLUMN billable INTEGER DEFAULT 1")
         except sqlite3.OperationalError:
             pass
+        # Migrate: ensure zone_aliases table exists (added in v0.3.x)
+        conn.execute("""CREATE TABLE IF NOT EXISTS zone_aliases (
+            zone_state TEXT PRIMARY KEY,
+            client_name TEXT NOT NULL
+        )""")
+        # Migrate: ensure msp_customers table exists (added in v0.3.x)
+        conn.execute("""CREATE TABLE IF NOT EXISTS msp_customers (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            short_name TEXT,
+            is_active INTEGER DEFAULT 1
+        )""")
         # No hardcoded seed data — rates, customers, and tickets are
         # populated from the MSP Manager API at startup.
         conn.commit()
@@ -970,7 +982,8 @@ class TimeTrackStore:
                 continue
             synced_ids.add(ticket_id)
             svc_id = t.get("ServiceItemId", "")
-            customer_short = self._get_svc_to_customer_map().get(svc_id, "")
+            customer_id = t.get("CustomerId", "")
+            customer_short = self._get_customer_short_map().get(customer_id, "")
             completed = t.get("CompletedDate")
             status = "closed" if completed else "open"
             is_alert = 1 if svc_id in self.ALERT_SERVICE_ITEM_IDS else 0

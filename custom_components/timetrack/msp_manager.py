@@ -80,7 +80,7 @@ class MSPManagerClient:
             "$top": str(top),
             "$orderby": "CreatedDate desc",
             "$select": "TicketId,TicketNumber,Title,TicketStatusCode,"
-                       "ServiceItemId,CreatedDate,CompletedDate",
+                       "ServiceItemId,CustomerId,CreatedDate,CompletedDate",
         }
         if active_only:
             # Exclude only Completed(7) and Cancelled(9)

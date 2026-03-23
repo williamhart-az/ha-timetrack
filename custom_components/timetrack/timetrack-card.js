@@ -245,7 +245,7 @@ class TimeTrackCard extends HTMLElement {
     const t = [
       { id: "status", l: "Status", i: "📊" },
       { id: "pending", l: "Pending", i: "📋" },
-      { id: "clients", l: "Clients", i: "👥" },
+      { id: "clients", l: "Setup", i: "⚙️" },
     ];
     return `<div class="tabs">${t.map(x => `
       <button class="tab ${this._activeTab === x.id ? "act" : ""}" data-tab="${x.id}">
@@ -633,7 +633,12 @@ class TimeTrackCard extends HTMLElement {
   _addClientPanel(customers, rates) {
     // Get tickets from sensor for the dropdown
     const pSensor = this._gs("sensor.timetrack_pending_entries");
-    const tickets = pSensor?.attributes?.tickets || [];
+    const allTickets = pSensor?.attributes?.tickets || [];
+    // Filter tickets by selected customer if one is chosen
+    const sel = this._selectedMapCustomer || "";
+    const tickets = sel
+      ? allTickets.filter(t => t.customer === sel || !t.customer)
+      : allTickets;
     const openTickets = tickets.filter(t => t.status === "open");
     return `
       <div class="panel add-client-panel">
@@ -644,7 +649,7 @@ class TimeTrackCard extends HTMLElement {
           <select class="sel" data-bind="map-customer">
             <option value="">— Select customer —</option>
             ${customers.map(c => `
-              <option value="${c.short}" data-name="${c.name}">
+              <option value="${c.short}" data-name="${c.name}" ${sel === c.short ? "selected" : ""}>
                 ${c.short} — ${c.name}
               </option>
             `).join("")}
@@ -849,12 +854,20 @@ class TimeTrackCard extends HTMLElement {
     // Add client toggle
     $("[data-act='toggle-add-client']").forEach(b => b.addEventListener("click", () => {
       this._addClientExpanded = !this._addClientExpanded;
+      this._selectedMapCustomer = "";
+      this.render();
+    }));
+
+    // Map client — customer dropdown filters tickets
+    $("[data-bind='map-customer']").forEach(s => s.addEventListener("change", () => {
+      this._selectedMapCustomer = s.value;
       this.render();
     }));
 
     // Cancel add client
     $("[data-act='cancel-add-client']").forEach(b => b.addEventListener("click", () => {
       this._addClientExpanded = false;
+      this._selectedMapCustomer = "";
       this.render();
     }));
 
