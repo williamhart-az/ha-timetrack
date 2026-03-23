@@ -211,7 +211,7 @@ async def _push_single_entry(
     """Push a single pending entry to MSP Manager."""
     entry_id = entry["id"]
     ticket_id = entry.get("resolved_ticket_id") or entry.get("msp_ticket_id")
-    rate_id = entry.get("resolved_rate_id") or entry.get("msp_service_item_rate_id") or store.DEFAULT_RATE_ID
+    rate_id = entry.get("resolved_rate_id") or entry.get("msp_service_item_rate_id") or store.get_default_rate_id()
     client_name = entry["client_name"]
     # Description priority: entry description > client default > generic fallback
     client_info = await hass.async_add_executor_job(

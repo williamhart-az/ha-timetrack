@@ -55,83 +55,31 @@ class TimeTrackStore:
         self._recorder_db_path = recorder_db_path
         self._init_db()
 
-    # Known MSP Manager service item rates (seeded from API)
-    KNOWN_RATES = [
-        {"id": "417b4543-7057-e611-80c3-000d3a31c86c", "name": "Onsite Network Engineer:8-5 M-F", "rate": 197.6, "is_default": True},
-        {"id": "3c7b4543-7057-e611-80c3-000d3a31c86c", "name": "Onsite Network Engineer:After hours", "rate": 296.4, "is_default": False},
-        {"id": "3d7b4543-7057-e611-80c3-000d3a31c86c", "name": "Onsite Network Engineer:Weekend", "rate": 395.2, "is_default": False},
-        {"id": "3e7b4543-7057-e611-80c3-000d3a31c86c", "name": "Remote Support Network Engineer:8-5 M-F", "rate": 167.96, "is_default": False},
-        {"id": "3f7b4543-7057-e611-80c3-000d3a31c86c", "name": "Remote Support Network Engineer:After hours", "rate": 276.64, "is_default": False},
-        {"id": "407b4543-7057-e611-80c3-000d3a31c86c", "name": "Remote Support Network Engineer:Weekend", "rate": 355.68, "is_default": False},
-    ]
-    DEFAULT_RATE_ID = "417b4543-7057-e611-80c3-000d3a31c86c"  # Onsite 8-5 M-F
-
-    # Known MSP Manager customers (seeded from API)
-    KNOWN_CUSTOMERS = [
-        {"id": "057b4543-7057-e611-80c3-000d3a31c86c", "name": "Casa Grande Eye Care", "short": "CGEC"},
-        {"id": "f9ebda2b-d071-ed11-b05a-000d3a326e2f", "name": "Diamond Site Services", "short": "DSS"},
-        {"id": "182d1dcd-43a0-ea11-86e9-000d3a3298d5", "name": "Dr Roger Rose", "short": "DRR"},
-        {"id": "3c5f56e8-8fa5-ec11-a99b-000d3a32a688", "name": "G&G Aero, LLC", "short": "GGA"},
-        {"id": "9856a765-5416-f111-832e-000d3a334195", "name": "LATUS - VLAN 388", "short": "LATUS"},
-        {"id": "67d1e605-a6c4-f011-8195-000d3a335510", "name": "Diamond Iron LLC", "short": "DI"},
-        {"id": "f80a57f7-e290-eb11-85aa-00155de01957", "name": "LuxAir", "short": "LuxAir"},
-        {"id": "da7d5b11-ad59-ef11-bdfd-6045bd00ca11", "name": "Lufthansa Aviation Training USA - PCs", "short": "LAT"},
-    ]
-
-    # ServiceItemIds that correspond to auto-generated alert tickets (filter from dropdowns)
-    ALERT_SERVICE_ITEM_IDS = {
-        "cbffd270-021d-ed11-bd6e-000d3a32beaf",  # CGEC alert tickets
-    }
-
-    # ServiceItemId → customer short name (for ticket mapping)
-    _SVC_TO_CUSTOMER = {
-        "067b4543-7057-e611-80c3-000d3a31c86c": "CGEC",
-        "fbebda2b-d071-ed11-b05a-000d3a326e2f": "DSS",
-        "f90a57f7-e290-eb11-85aa-00155de01957": "LuxAir",
-        "db7d5b11-ad59-ef11-bdfd-6045bd00ca11": "LAT",
-        "68d1e605-a6c4-f011-8195-000d3a335510": "DI",
-        "dc907384-37aa-ec11-a99b-000d3a32a688": "GGA",
-        "f9ebda2b-d071-ed11-b05a-000d3a326e2f": "DSS",
-        "cbffd270-021d-ed11-bd6e-000d3a32beaf": "CGEC",  # Alert tickets ServiceItemId
-    }
-
-    # Reverse: customer short → primary ServiceItemId (for ticket creation)
-    _CUSTOMER_TO_SVC = {
-        "CGEC": "067b4543-7057-e611-80c3-000d3a31c86c",
-        "DSS": "fbebda2b-d071-ed11-b05a-000d3a326e2f",
-        "LuxAir": "f90a57f7-e290-eb11-85aa-00155de01957",
-        "LAT": "db7d5b11-ad59-ef11-bdfd-6045bd00ca11",
-        "DI": "68d1e605-a6c4-f011-8195-000d3a335510",
-        "GGA": "dc907384-37aa-ec11-a99b-000d3a32a688",
-    }
+    # All rates, customers, and tickets are populated from the MSP Manager API
+    # at startup. No hardcoded data — clean slate for every install.
+    KNOWN_RATES = []
+    KNOWN_CUSTOMERS = []
+    KNOWN_TICKETS = []
+    ALERT_SERVICE_ITEM_IDS = set()
 
     def get_service_item_for_customer(self, customer_short: str) -> str | None:
-        """Get the ServiceItemId for a customer short name."""
-        return self._CUSTOMER_TO_SVC.get(customer_short)
+        """Get the ServiceItemId for a customer short name (from DB)."""
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT id FROM msp_customers WHERE short_name = ? AND is_active = 1 LIMIT 1",
+            (customer_short,),
+        ).fetchone()
+        conn.close()
+        return row["id"] if row else None
 
-    # Known tickets (seeded from API)
-    KNOWN_TICKETS = [
-        {"id": "b4ab1eef-09dd-f011-8d4c-000d3a31add0", "num": 267, "title": "December Onsite Visits", "svc": "db7d5b11-ad59-ef11-bdfd-6045bd00ca11", "status": "closed"},
-        {"id": "6ae97440-0bdd-f011-8d4c-000d3a31add0", "num": 268, "title": "December Onsite Visits", "svc": "f90a57f7-e290-eb11-85aa-00155de01957", "status": "closed"},
-        {"id": "8fa266fa-36eb-f011-8d4c-000d3a31add0", "num": 269, "title": "January Onsite/Offsite", "svc": "db7d5b11-ad59-ef11-bdfd-6045bd00ca11", "status": "closed"},
-        {"id": "15477177-2af0-f011-8d4c-000d3a31add0", "num": 271, "title": "Call with Don", "svc": "68d1e605-a6c4-f011-8195-000d3a335510", "status": "closed"},
-        {"id": "90a3439c-7dfc-f011-8d4c-000d3a31add0", "num": 272, "title": "Roger Adams - VPN/Teams Issues", "svc": "68d1e605-a6c4-f011-8195-000d3a335510", "status": "closed"},
-        {"id": "f427e779-41fd-f011-8d4c-000d3a31add0", "num": 273, "title": "January 2026 Onsite Visits", "svc": "dc907384-37aa-ec11-a99b-000d3a32a688", "status": "closed"},
-        {"id": "e32681ea-67fd-f011-8d4c-000d3a31add0", "num": 274, "title": "January On-site Visits", "svc": "f90a57f7-e290-eb11-85aa-00155de01957", "status": "closed"},
-        {"id": "edcdb7c8-ebb4-f011-8e62-000d3a31a107", "num": 257, "title": "Zoho tickets, management and maintenance.", "svc": "db7d5b11-ad59-ef11-bdfd-6045bd00ca11", "status": "closed"},
-        {"id": "0014cf16-f2b4-f011-8e62-000d3a31a107", "num": 258, "title": "New PC - Michelle and Maintenance", "svc": "f90a57f7-e290-eb11-85aa-00155de01957", "status": "closed"},
-        {"id": "e1f832e2-e2b8-f011-8e62-000d3a31a107", "num": 259, "title": "PCI Compliance Meeting", "svc": "fbebda2b-d071-ed11-b05a-000d3a326e2f", "status": "closed"},
-        {"id": "321792af-e9b4-f011-8e62-000d3a31a107", "num": 256, "title": "Remote support for Leah/Josh", "svc": "f90a57f7-e290-eb11-85aa-00155de01957", "status": "closed"},
-        {"id": "0d1c3bca-bc82-f011-b482-000d3a319558", "num": 249, "title": "Onboarding two new devices", "svc": "f90a57f7-e290-eb11-85aa-00155de01957", "status": "closed"},
-        {"id": "e16d0466-0fda-f011-8d4c-000d3a31add0", "num": 266, "title": "Kim Crum Telephone Call", "svc": "68d1e605-a6c4-f011-8195-000d3a335510", "status": "closed"},
-        {"id": "e572c7b7-2de4-eb11-a7ad-000d3a311bc5", "num": 144, "title": "Haley's IT issues after new furniture", "svc": "f90a57f7-e290-eb11-85aa-00155de01957", "status": "closed"},
-        {"id": "4b2f2e1a-0a6e-ee11-9937-000d3a30cdc7", "num": 208, "title": "Onboarding Setup of new PC", "svc": "fbebda2b-d071-ed11-b05a-000d3a326e2f", "status": "closed"},
-        {"id": "e7d46a0b-5f77-ee11-9937-000d3a30cdc7", "num": 215, "title": "Onboard Israel to new machine", "svc": "fbebda2b-d071-ed11-b05a-000d3a326e2f", "status": "closed"},
-        {"id": "23b96909-1ca2-e611-80c3-0003ffba1d79", "num": 43, "title": "AV Deployment", "svc": "067b4543-7057-e611-80c3-000d3a31c86c", "status": "closed"},
-        {"id": "b007f772-f7b8-e611-80c3-0003ffba1d79", "num": 50, "title": "Create and deploy user credentials", "svc": "067b4543-7057-e611-80c3-000d3a31c86c", "status": "closed"},
-        {"id": "ea3596db-bc64-e611-80c3-000d3a31c86c", "num": 24, "title": "Client having issues connecting through TeamViewer", "svc": "067b4543-7057-e611-80c3-000d3a31c86c", "status": "closed"},
-        {"id": "efb50010-8165-e611-80c3-000d3a31c86c", "num": 25, "title": "Computers getting bumped off completely", "svc": "067b4543-7057-e611-80c3-000d3a31c86c", "status": "closed"},
-    ]
+    def _get_svc_to_customer_map(self) -> dict:
+        """Build ServiceItemId → customer short map from DB."""
+        conn = self._connect()
+        rows = conn.execute(
+            "SELECT id, short_name FROM msp_customers WHERE is_active = 1"
+        ).fetchall()
+        conn.close()
+        return {r["id"]: r["short_name"] for r in rows}
 
     def _init_db(self):
         """Create tables if they don't exist."""
@@ -249,29 +197,8 @@ class TimeTrackStore:
             conn.execute("ALTER TABLE time_entries ADD COLUMN billable INTEGER DEFAULT 1")
         except sqlite3.OperationalError:
             pass
-        # Seed service item rates
-        for r in self.KNOWN_RATES:
-            conn.execute(
-                """INSERT OR REPLACE INTO service_item_rates (id, name, rate, is_default, is_active)
-                   VALUES (?, ?, ?, ?, 1)""",
-                (r["id"], r["name"], r["rate"], 1 if r["is_default"] else 0),
-            )
-        # Seed MSP Manager customers
-        for c in self.KNOWN_CUSTOMERS:
-            conn.execute(
-                """INSERT OR REPLACE INTO msp_customers (id, name, short_name, is_active)
-                   VALUES (?, ?, ?, 1)""",
-                (c["id"], c["name"], c["short"]),
-            )
-        # Seed known tickets
-        for t in self.KNOWN_TICKETS:
-            customer_short = self._SVC_TO_CUSTOMER.get(t["svc"], "")
-            conn.execute(
-                """INSERT OR IGNORE INTO msp_tickets
-                   (id, ticket_number, title, customer_short, status)
-                   VALUES (?, ?, ?, ?, ?)""",
-                (t["id"], t["num"], t["title"], customer_short, t["status"]),
-            )
+        # No hardcoded seed data — rates, customers, and tickets are
+        # populated from the MSP Manager API at startup.
         conn.commit()
         conn.close()
         _LOGGER.info("TimeTrack database initialized at %s", self._db_path)
@@ -294,11 +221,10 @@ class TimeTrackStore:
     ) -> None:
         """Add or update a client with MSP Manager mapping.
 
-        If no service_item_rate_id is provided, uses the default rate
-        (Onsite Network Engineer:8-5 M-F).
+        If no service_item_rate_id is provided, uses the default rate from the DB.
         """
         if not msp_service_item_rate_id:
-            msp_service_item_rate_id = self.DEFAULT_RATE_ID
+            msp_service_item_rate_id = self.get_default_rate_id()
         # Preserve existing zone_name if not provided
         if not zone_name:
             zone_name = f"TimeTrack - {name}"
@@ -367,9 +293,14 @@ class TimeTrackStore:
         conn.close()
         return row["id"] if row else None
 
-    def get_default_rate_id(self) -> str:
-        """Get the default service item rate ID."""
-        return self.DEFAULT_RATE_ID
+    def get_default_rate_id(self) -> str | None:
+        """Get the default service item rate ID from DB."""
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT id FROM service_item_rates WHERE is_default = 1 AND is_active = 1 LIMIT 1"
+        ).fetchone()
+        conn.close()
+        return row["id"] if row else None
 
     def get_client_by_zone(self, zone_name: str) -> Optional[dict]:
         """Look up a client by their TimeTrack zone name."""
@@ -985,7 +916,7 @@ class TimeTrackStore:
                 continue
             synced_ids.add(ticket_id)
             svc_id = t.get("ServiceItemId", "")
-            customer_short = self._SVC_TO_CUSTOMER.get(svc_id, "")
+            customer_short = self._get_svc_to_customer_map().get(svc_id, "")
             completed = t.get("CompletedDate")
             status = "closed" if completed else "open"
             is_alert = 1 if svc_id in self.ALERT_SERVICE_ITEM_IDS else 0
