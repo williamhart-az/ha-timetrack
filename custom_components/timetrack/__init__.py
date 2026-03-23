@@ -455,7 +455,7 @@ def _register_services(
         DOMAIN, "map_client", handle_map_client,
         schema=vol.Schema({
             vol.Required("client"): cv.string,
-            vol.Required("ticket_id"): cv.string,
+            vol.Optional("ticket_id", default=""): cv.string,
             vol.Optional("service_item_rate_id", default=""): cv.string,
             vol.Optional("msp_client_name", default=""): cv.string,
             vol.Optional("zone", default=""): cv.string,

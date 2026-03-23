@@ -477,8 +477,10 @@ class TimeTrackCard extends HTMLElement {
           <div class="sec-t">Client Mapping</div>
           <div style="color:var(--secondary-text-color,#999);font-size:0.8em;margin-bottom:4px">Default ticket auto-applies to pending entries</div>
           <div style="display:flex;gap:6px">
-            <button class="btn btn-sm btn-muted" data-act="sync-tickets">🔄 Sync Tickets</button>
-            <button class="btn btn-sm btn-green" data-act="toggle-create-ticket">🎫 New Ticket</button>
+            ${customers.length > 0 ? `
+              <button class="btn btn-sm btn-muted" data-act="sync-tickets">🔄 Sync Tickets</button>
+              <button class="btn btn-sm btn-green" data-act="toggle-create-ticket">🎫 New Ticket</button>
+            ` : ""}
             <button class="btn btn-sm btn-accent" data-act="toggle-add-client">+ Add</button>
           </div>
         </div>
@@ -655,7 +657,23 @@ class TimeTrackCard extends HTMLElement {
     `;
   }
   _addClientPanel(customers, rates) {
-    // Get tickets from sensor for the dropdown
+    // No-API mode: simple text input for client name
+    if (customers.length === 0) {
+      return `
+        <div class="panel add-client-panel">
+          <div class="panel-title">Add Client</div>
+          <div class="form-row">
+            <label>Client Name</label>
+            <input class="inp" data-bind="manual-client-name" placeholder="e.g. ACME Corp" />
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-sm btn-muted" data-act="cancel-add-client">Cancel</button>
+            <button class="btn btn-sm btn-accent" data-act="do-add-manual-client">Add Client</button>
+          </div>
+        </div>
+      `;
+    }
+    // Full mapping mode (API connected)
     const pSensor = this._gs("sensor.timetrack_pending_entries");
     const allTickets = pSensor?.attributes?.tickets || [];
     // Filter tickets by selected customer if one is chosen
@@ -908,7 +926,7 @@ class TimeTrackCard extends HTMLElement {
       this.render();
     }));
 
-    // Map client submit
+    // Map client submit (API mode)
     $("[data-act='do-map-client']").forEach(b => b.addEventListener("click", () => {
       const customer = this.shadowRoot.querySelector("[data-bind='map-customer']")?.value;
       const ticket = this.shadowRoot.querySelector("[data-bind='map-ticket']")?.value;
@@ -924,6 +942,15 @@ class TimeTrackCard extends HTMLElement {
         service_item_rate_id: rate || "",
         msp_client_name: mspName,
       });
+      this._addClientExpanded = false;
+      this.render();
+    }));
+
+    // Add manual client (no-API mode)
+    $("[data-act='do-add-manual-client']").forEach(b => b.addEventListener("click", () => {
+      const name = this.shadowRoot.querySelector("[data-bind='manual-client-name']")?.value?.trim();
+      if (!name) { alert("Enter a client name"); return; }
+      this._svc("map_client", { client: name });
       this._addClientExpanded = false;
       this.render();
     }));
