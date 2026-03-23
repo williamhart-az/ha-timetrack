@@ -542,7 +542,7 @@ class TimeTrackCard extends HTMLElement {
             </select>
             <select class="sel" data-bind="alias-client" style="flex:1">
               <option value="">— Client —</option>
-              ${customers.map(c => `<option value="${c.short}">${c.short} — ${c.name}</option>`).join("")}
+              ${clients.map(c => `<option value="${c.name}">${c.name}</option>`).join("")}
             </select>
             <button class="btn btn-sm btn-accent" data-act="add-alias">+ Add</button>
           </div>
@@ -1184,7 +1184,7 @@ class TimeTrackCard extends HTMLElement {
              background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 5l3 3 3-3' stroke='%23999' fill='none' stroke-width='1.5'/%3E%3C/svg%3E");
              background-repeat: no-repeat; background-position: right 10px center; }
       .sel:focus { outline: none; border-color: var(--ac); }
-      .sel option { background: #2a2a2e; color: var(--tx); }
+      .sel option { color: var(--tx); }
 
       /* Buttons */
       .btn { padding: 8px 16px; border: none; border-radius: 8px;
