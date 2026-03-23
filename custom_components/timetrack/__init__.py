@@ -667,7 +667,45 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if unsub:
             unsub()
 
+    # Remove Lovelace card resource registration
+    card_url = f"/{DOMAIN}/timetrack-card.js"
+    try:
+        lovelace = hass.data.get("lovelace")
+        if lovelace and hasattr(lovelace, "resources"):
+            resources = lovelace.resources
+            for r in resources.async_items():
+                if r.get("url", "").startswith(card_url):
+                    await resources.async_delete_item(r["id"])
+                    _LOGGER.info("Removed Lovelace card resource: %s", card_url)
+                    break
+    except Exception as exc:
+        _LOGGER.debug("Could not remove Lovelace card resource: %s", exc)
+
+    # Remove extra JS URL
+    try:
+        from homeassistant.components.frontend import remove_extra_js_url
+        remove_extra_js_url(hass, card_url)
+    except Exception:
+        pass
+
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id, None)
     return unload_ok
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Clean up when the integration is fully removed."""
+    # Delete the TimeTrack database
+    db_path = Path(hass.config.path("timetrack.db"))
+    if db_path.exists():
+        try:
+            db_path.unlink()
+            _LOGGER.info("Deleted TimeTrack database: %s", db_path)
+            # Also clean up WAL/SHM files if they exist
+            for suffix in ("-wal", "-shm"):
+                wal = db_path.with_name(db_path.name + suffix)
+                if wal.exists():
+                    wal.unlink()
+        except Exception as exc:
+            _LOGGER.warning("Could not delete TimeTrack database: %s", exc)
