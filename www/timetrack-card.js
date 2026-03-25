@@ -548,6 +548,11 @@ class TimeTrackCard extends HTMLElement {
               <option value="">— Select zone —</option>
               ${Object.keys(this._hass.states)
                 .filter(e => e.startsWith("zone."))
+                .sort((a, b) => {
+                  const nameA = this._hass.states[a].attributes.friendly_name || a;
+                  const nameB = this._hass.states[b].attributes.friendly_name || b;
+                  return nameA.localeCompare(nameB);
+                })
                 .map(e => {
                   const name = this._hass.states[e].attributes.friendly_name || e.replace("zone.", "");
                   return `<option value="${name}">${name}</option>`;
@@ -719,6 +724,12 @@ class TimeTrackCard extends HTMLElement {
               </option>
             `).join("")}
           </select>
+        </div>
+
+        <div class="form-row">
+          <label>Default Description</label>
+          <input type="text" class="inp" data-bind="map-description"
+                 placeholder="Auto-fills for entries (e.g. Zoho tickets, management)" />
         </div>
 
         <div class="form-actions">
@@ -928,6 +939,7 @@ class TimeTrackCard extends HTMLElement {
       const customer = this.shadowRoot.querySelector("[data-bind='map-customer']")?.value;
       const ticket = this.shadowRoot.querySelector("[data-bind='map-ticket']")?.value;
       const rate = this.shadowRoot.querySelector("[data-bind='map-rate']")?.value;
+      const desc = this.shadowRoot.querySelector("[data-bind='map-description']")?.value;
       const opt = this.shadowRoot.querySelector("[data-bind='map-customer'] option:checked");
       const mspName = opt?.dataset?.name || "";
 
@@ -938,6 +950,7 @@ class TimeTrackCard extends HTMLElement {
         ticket_id: ticket || "",
         service_item_rate_id: rate || "",
         msp_client_name: mspName,
+        default_description: desc || "",
       });
       this._addClientExpanded = false;
       this.render();

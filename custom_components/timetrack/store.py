@@ -685,18 +685,19 @@ class TimeTrackStore:
             clock_in_str = arrive.isoformat()
             clock_out_str = depart.isoformat()
 
-            # Get default ticket from client
+            # Get default ticket and description from client
             client_info = self.get_client_by_name(client_name)
             ticket_id = client_info.get("msp_ticket_id") if client_info else None
+            description = client_info.get("default_description", "") if client_info else ""
 
             conn.execute(
                 """INSERT INTO time_entries
                    (client_name, zone_name, clock_in, clock_out,
                     raw_hours, rounded_hours, source, msp_ticket_id,
-                    push_status, billable)
-                   VALUES (?, ?, ?, ?, ?, ?, 'history', ?, 'pending', 1)""",
+                    description, push_status, billable)
+                   VALUES (?, ?, ?, ?, ?, ?, 'history', ?, ?, 'pending', 1)""",
                 (client_name, zone, clock_in_str, clock_out_str,
-                 round(raw_hours, 2), rounded_hours, ticket_id),
+                 round(raw_hours, 2), rounded_hours, ticket_id, description or ""),
             )
             generated += 1
 

@@ -131,6 +131,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             [StaticPathConfig(card_url, str(card_path), False)]
         )
 
+        # Read version from manifest.json for cache-busting
+        import json as _json
+        manifest_path = Path(__file__).parent / "manifest.json"
+        try:
+            version = _json.loads(manifest_path.read_text()).get("version", "0")
+        except Exception:
+            version = "0"
+        versioned_url = f"{card_url}?v={version}"
+
         # Register as a Lovelace resource so the card auto-loads on all dashboards
         try:
             lovelace = hass.data["lovelace"]
@@ -142,9 +151,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             ]
             if not existing:
                 await resources.async_create_item(
-                    {"res_type": "module", "url": card_url}
+                    {"res_type": "module", "url": versioned_url}
                 )
-                _LOGGER.info("Registered Lovelace card resource: %s", card_url)
+                _LOGGER.info("Registered Lovelace card resource: %s", versioned_url)
+            elif existing[0].get("url") != versioned_url:
+                # Version changed — update the resource URL to bust cache
+                await resources.async_update_item(
+                    existing[0]["id"],
+                    {"url": versioned_url},
+                )
+                _LOGGER.info("Updated Lovelace card cache-bust: %s", versioned_url)
             else:
                 _LOGGER.debug("Lovelace card resource already registered")
         except Exception as exc:
@@ -346,6 +362,7 @@ def _register_services(
             service_item_rate_id, msp_client_name, default_description,
         )
         _LOGGER.info("Mapped client %s → MSP ticket %s", client, ticket_id)
+        tracker._notify_listeners()
 
     async def handle_push_entries(call: ServiceCall) -> None:
         """Batch push pending entries to MSP Manager."""
@@ -380,6 +397,7 @@ def _register_services(
             "timetrack_push_complete",
             {"pushed": pushed, "failed": failed, "total": len(pending)},
         )
+        tracker._notify_listeners()
 
     async def handle_edit_entry(call: ServiceCall) -> None:
         """Edit an entry's description, ticket, rate, billable, or client."""
@@ -426,6 +444,7 @@ def _register_services(
             store.update_entry, entry_id, description, ticket_id, billable, rate_id, new_client
         )
         _LOGGER.info("Updated entry %d", entry_id)
+        tracker._notify_listeners()
 
     async def handle_sync_tickets(call: ServiceCall) -> None:
         """Sync active tickets from MSP Manager."""
@@ -442,6 +461,7 @@ def _register_services(
             hass.bus.async_fire("timetrack_tickets_synced", {"count": count})
         else:
             _LOGGER.info("No active tickets returned from MSP Manager")
+        tracker._notify_listeners()
 
     # Register all services
     hass.services.async_register(
@@ -619,6 +639,7 @@ def _register_services(
         )
         # Fire event so the card can show the result
         hass.bus.async_fire("timetrack_entries_generated", result)
+        tracker._notify_listeners()
 
     hass.services.async_register(
         DOMAIN, "generate_entries", handle_generate_entries,
@@ -637,6 +658,7 @@ def _register_services(
         client = call.data["client_name"]
         await hass.async_add_executor_job(store.add_zone_alias, zone, client)
         _LOGGER.info("Added zone alias: %s → %s", zone, client)
+        tracker._notify_listeners()
 
     async def handle_remove_zone_alias(call: ServiceCall) -> None:
         if not _check_auth(call, authorized_user_id):
@@ -644,6 +666,7 @@ def _register_services(
         zone = call.data["zone_state"]
         await hass.async_add_executor_job(store.remove_zone_alias, zone)
         _LOGGER.info("Removed zone alias: %s", zone)
+        tracker._notify_listeners()
 
     hass.services.async_register(
         DOMAIN, "add_zone_alias", handle_add_zone_alias,
@@ -670,6 +693,7 @@ def _register_services(
             hass.bus.async_fire("timetrack_entry_deleted", {"entry_id": entry_id})
         else:
             _LOGGER.warning("Could not delete entry %d (not found or already pushed)", entry_id)
+        tracker._notify_listeners()
 
     async def handle_delete_client(call: ServiceCall) -> None:
         """Delete a client mapping and its pending entries."""
@@ -682,6 +706,7 @@ def _register_services(
             hass.bus.async_fire("timetrack_client_deleted", {"client": client})
         else:
             _LOGGER.warning("Could not delete client '%s' (not found)", client)
+        tracker._notify_listeners()
 
     hass.services.async_register(
         DOMAIN, "delete_entry", handle_delete_entry,
