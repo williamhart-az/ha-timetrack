@@ -977,8 +977,9 @@ class TimeTrackStore:
         msp_ticket_id: str = None,
         billable: bool = None,
         msp_rate_id: str = None,
+        client_name: str = None,
     ) -> bool:
-        """Update an entry's description, ticket, rate, or billable flag before push."""
+        """Update an entry's description, ticket, rate, billable flag, or client before push."""
         conn = self._connect()
         updates = []
         params = []
@@ -994,6 +995,9 @@ class TimeTrackStore:
         if msp_rate_id is not None:
             updates.append("msp_rate_id = ?")
             params.append(msp_rate_id)
+        if client_name is not None:
+            updates.append("client_name = ?")
+            params.append(client_name)
         if not updates:
             conn.close()
             return False
@@ -1004,6 +1008,60 @@ class TimeTrackStore:
         )
         conn.commit()
         conn.close()
+        return True
+
+    def delete_entry(self, entry_id: int) -> bool:
+        """Delete a time entry, but only if it hasn't been pushed yet.
+
+        Returns True if deleted, False if not found or already pushed.
+        """
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT push_status FROM time_entries WHERE id = ?",
+            (entry_id,),
+        ).fetchone()
+        if not row:
+            conn.close()
+            return False
+        if row["push_status"] not in ("pending", "failed"):
+            conn.close()
+            _LOGGER.warning(
+                "Cannot delete entry %d — already pushed (status: %s)",
+                entry_id, row["push_status"],
+            )
+            return False
+        conn.execute("DELETE FROM time_entries WHERE id = ?", (entry_id,))
+        conn.commit()
+        conn.close()
+        _LOGGER.info("Deleted time entry #%d", entry_id)
+        return True
+
+    def delete_client(self, name: str) -> bool:
+        """Hard-delete a client and cascade-delete its pending/failed entries.
+
+        Already-pushed entries are left orphaned (harmless).
+        Returns True if the client existed and was deleted.
+        """
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT id FROM clients WHERE name = ?", (name,)
+        ).fetchone()
+        if not row:
+            conn.close()
+            return False
+        # Cascade: delete pending/failed entries for this client
+        deleted_entries = conn.execute(
+            """DELETE FROM time_entries
+               WHERE client_name = ? AND push_status IN ('pending', 'failed')""",
+            (name,),
+        ).rowcount
+        # Delete the client itself
+        conn.execute("DELETE FROM clients WHERE name = ?", (name,))
+        conn.commit()
+        conn.close()
+        _LOGGER.info(
+            "Deleted client '%s' and %d pending entries", name, deleted_entries
+        )
         return True
 
     def mark_pushed(self, entry_id: int) -> None:

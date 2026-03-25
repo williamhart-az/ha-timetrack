@@ -168,7 +168,7 @@ class TimeTrackCard extends HTMLElement {
           ${this._tabs()}
           <div class="tc">
             ${this._activeTab === "status" ? this._tabStatus(entries) : ""}
-            ${this._activeTab === "pending" ? this._tabPending(pendingEntries, clients, tickets, rates) : ""}
+            ${this._activeTab === "pending" ? this._tabPending(pendingEntries, clients, tickets, rates, customers) : ""}
             ${this._activeTab === "clients" ? this._tabClients(clients, rates, customers, tickets, aliases) : ""}
           </div>
         </div>
@@ -376,7 +376,7 @@ class TimeTrackCard extends HTMLElement {
 
   // ── Tab: Pending ──
 
-  _tabPending(entries, clients, tickets, rates) {
+  _tabPending(entries, clients, tickets, rates, customers) {
     const pending = entries.filter(e => e.push_status === "pending");
     const failed = entries.filter(e => e.push_status === "failed");
     const all = [...pending, ...failed];
@@ -390,12 +390,12 @@ class TimeTrackCard extends HTMLElement {
           ` : ""}
         </div>
         ${all.length === 0 ? `<div class="empty">All caught up! 🎉</div>` : ""}
-        ${all.map(e => this._pendingCard(e, tickets, rates)).join("")}
+        ${all.map(e => this._pendingCard(e, tickets, rates, customers)).join("")}
       </div>
     `;
   }
 
-  _pendingCard(e, tickets, rates) {
+  _pendingCard(e, tickets, rates, customers) {
     // Filter tickets to only show those matching this entry's client
     const clientTickets = tickets.filter(t => !t.customer || t.customer === e.client);
     const openTickets = clientTickets.filter(t => t.status === "open");
@@ -412,6 +412,17 @@ class TimeTrackCard extends HTMLElement {
           <span class="pc-hrs">${this._fmtDur(e.rounded_hours)}</span>
         </div>
         <div class="pc-times">${this._fmtTime(e.clock_in)} → ${this._fmtTime(e.clock_out)}</div>
+
+        <div class="pc-field">
+          <label>Client</label>
+          <select class="sel client-sel" data-eid="${e.id}">
+            ${customers.map(c => `
+              <option value="${c.short}" ${e.client === c.short ? "selected" : ""}>
+                ${c.short} — ${c.name}
+              </option>
+            `).join("")}
+          </select>
+        </div>
 
         <div class="pc-field">
           <label>Description</label>
@@ -459,6 +470,7 @@ class TimeTrackCard extends HTMLElement {
             <span>💰 Billable</span>
           </label>
           ${e.push_status === "failed" ? `<span class="fail-label">❌ Failed — retry?</span>` : ""}
+          <button class="btn btn-sm btn-red" data-act="delete-entry" data-id="${e.id}" title="Delete entry">🗑️</button>
           <button class="btn btn-sm btn-green" data-act="push-one" data-id="${e.id}"
                   ${!e.msp_ticket_id ? "disabled title='Assign a ticket first'" : ""}>
             📤 Push
@@ -507,7 +519,10 @@ class TimeTrackCard extends HTMLElement {
                     `<span class="tbadge tbadge-warn">⚠️ No ticket</span>`
                   }
                   <span class="crow-rate">${rateName}</span>
-                  <button class="btn-icon" data-act="edit-client" data-client="${c.name}" title="Edit mapping">✏️</button>
+                  <div class="crow-actions">
+                    <button class="btn-icon" data-act="edit-client" data-client="${c.name}" title="Edit mapping">✏️</button>
+                    <button class="btn-icon btn-icon-danger" data-act="delete-client" data-client="${c.name}" title="Delete client">🗑️</button>
+                  </div>
                 </div>
               </div>
               ${isEditing ? this._editClientForm(c, tickets, rates) : ""}
@@ -953,6 +968,32 @@ class TimeTrackCard extends HTMLElement {
       });
     }));
 
+    // Delete entry (pending tab)
+    $("[data-act='delete-entry']").forEach(b => b.addEventListener("click", () => {
+      if (!confirm(`Delete this time entry? This cannot be undone.`)) return;
+      this._svc("delete_entry", { entry_id: parseInt(b.dataset.id) });
+      setTimeout(() => this.render(), 500);
+    }));
+
+    // Delete client (setup tab)
+    $("[data-act='delete-client']").forEach(b => b.addEventListener("click", () => {
+      const name = b.dataset.client;
+      if (!confirm(`Delete client "${name}" and all its pending entries?\n\nThis cannot be undone.`)) return;
+      this._svc("delete_client", { client: name });
+      setTimeout(() => this.render(), 500);
+    }));
+
+    // Client reassignment on pending entries
+    $(".client-sel").forEach(sel => {
+      sel.addEventListener("change", () => {
+        this._svc("edit_entry", {
+          entry_id: parseInt(sel.dataset.eid),
+          client_name: sel.value,
+        });
+        setTimeout(() => this.render(), 500);
+      });
+    });
+
     // Add zone alias
     $("[data-act='add-alias']").forEach(b => b.addEventListener("click", () => {
       const zone = this.shadowRoot.querySelector("[data-bind='alias-zone']")?.value?.trim();
@@ -1116,6 +1157,8 @@ class TimeTrackCard extends HTMLElement {
       .btn-icon { background: none; border: none; cursor: pointer; padding: 2px 4px;
                   font-size: 14px; opacity: 0.5; transition: opacity 0.2s; }
       .btn-icon:hover { opacity: 1; }
+      .btn-icon-danger:hover { opacity: 1; filter: brightness(1.2); }
+      .crow-actions { display: flex; gap: 4px; align-items: center; margin-top: 4px; }
       .edit-client-panel { margin: 0 12px 12px; border-radius: 0 0 8px 8px; }
 
       /* Rates */

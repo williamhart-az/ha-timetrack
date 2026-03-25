@@ -168,7 +168,7 @@ class TimeTrackCard extends HTMLElement {
           ${this._tabs()}
           <div class="tc">
             ${this._activeTab === "status" ? this._tabStatus(entries) : ""}
-            ${this._activeTab === "pending" ? this._tabPending(pendingEntries, clients, tickets) : ""}
+            ${this._activeTab === "pending" ? this._tabPending(pendingEntries, clients, tickets, rates, customers) : ""}
             ${this._activeTab === "clients" ? this._tabClients(clients, rates, customers, tickets, aliases) : ""}
           </div>
         </div>
@@ -245,7 +245,7 @@ class TimeTrackCard extends HTMLElement {
     const t = [
       { id: "status", l: "Status", i: "📊" },
       { id: "pending", l: "Pending", i: "📋" },
-      { id: "clients", l: "Clients", i: "👥" },
+      { id: "clients", l: "Setup", i: "⚙️" },
     ];
     return `<div class="tabs">${t.map(x => `
       <button class="tab ${this._activeTab === x.id ? "act" : ""}" data-tab="${x.id}">
@@ -376,7 +376,7 @@ class TimeTrackCard extends HTMLElement {
 
   // ── Tab: Pending ──
 
-  _tabPending(entries, clients, tickets) {
+  _tabPending(entries, clients, tickets, rates, customers) {
     const pending = entries.filter(e => e.push_status === "pending");
     const failed = entries.filter(e => e.push_status === "failed");
     const all = [...pending, ...failed];
@@ -390,16 +390,18 @@ class TimeTrackCard extends HTMLElement {
           ` : ""}
         </div>
         ${all.length === 0 ? `<div class="empty">All caught up! 🎉</div>` : ""}
-        ${all.map(e => this._pendingCard(e, tickets)).join("")}
+        ${all.map(e => this._pendingCard(e, tickets, rates, customers)).join("")}
       </div>
     `;
   }
 
-  _pendingCard(e, tickets) {
+  _pendingCard(e, tickets, rates, customers) {
     // Filter tickets to only show those matching this entry's client
     const clientTickets = tickets.filter(t => !t.customer || t.customer === e.client);
     const openTickets = clientTickets.filter(t => t.status === "open");
     const closedTickets = clientTickets.filter(t => t.status !== "open");
+    // Determine current rate (per-entry override or client default)
+    const currentRate = e.msp_rate_id || e.msp_service_item_rate_id || "";
     return `
       <div class="pcard ${e.push_status === 'failed' ? 'pcard-fail' : ''}">
         <div class="pc-top">
@@ -410,6 +412,17 @@ class TimeTrackCard extends HTMLElement {
           <span class="pc-hrs">${this._fmtDur(e.rounded_hours)}</span>
         </div>
         <div class="pc-times">${this._fmtTime(e.clock_in)} → ${this._fmtTime(e.clock_out)}</div>
+
+        <div class="pc-field">
+          <label>Client</label>
+          <select class="sel client-sel" data-eid="${e.id}">
+            ${customers.map(c => `
+              <option value="${c.short}" ${e.client === c.short ? "selected" : ""}>
+                ${c.short} — ${c.name}
+              </option>
+            `).join("")}
+          </select>
+        </div>
 
         <div class="pc-field">
           <label>Description</label>
@@ -439,6 +452,17 @@ class TimeTrackCard extends HTMLElement {
           </select>
         </div>
 
+        <div class="pc-field">
+          <label>Rate</label>
+          <select class="sel rate-sel" data-eid="${e.id}">
+            ${rates.map(r => `
+              <option value="${r.id}" ${currentRate === r.id ? "selected" : ""}>
+                ${r.name} ($${r.rate})
+              </option>
+            `).join("")}
+          </select>
+        </div>
+
         <div class="pc-actions">
           <label class="nb-toggle" title="Toggle billable">
             <input type="checkbox" ${e.billable ? "checked" : ""}
@@ -446,6 +470,7 @@ class TimeTrackCard extends HTMLElement {
             <span>💰 Billable</span>
           </label>
           ${e.push_status === "failed" ? `<span class="fail-label">❌ Failed — retry?</span>` : ""}
+          <button class="btn btn-sm btn-red" data-act="delete-entry" data-id="${e.id}" title="Delete entry">🗑️</button>
           <button class="btn btn-sm btn-green" data-act="push-one" data-id="${e.id}"
                   ${!e.msp_ticket_id ? "disabled title='Assign a ticket first'" : ""}>
             📤 Push
@@ -470,7 +495,7 @@ class TimeTrackCard extends HTMLElement {
           </div>
         </div>
 
-        ${this._createTicketExpanded ? this._createTicketPanel(customers) : ""}
+        ${this._createTicketExpanded ? this._createTicketPanel(customers, rates) : ""}
         ${this._addClientExpanded ? this._addClientPanel(customers, rates) : ""}
 
         ${clients.length === 0 ? `<div class="empty">No clients mapped yet.<br>Click "+ Add" above.</div>` : ""}
@@ -494,7 +519,10 @@ class TimeTrackCard extends HTMLElement {
                     `<span class="tbadge tbadge-warn">⚠️ No ticket</span>`
                   }
                   <span class="crow-rate">${rateName}</span>
-                  <button class="btn-icon" data-act="edit-client" data-client="${c.name}" title="Edit mapping">✏️</button>
+                  <div class="crow-actions">
+                    <button class="btn-icon" data-act="edit-client" data-client="${c.name}" title="Edit mapping">✏️</button>
+                    <button class="btn-icon btn-icon-danger" data-act="delete-client" data-client="${c.name}" title="Delete client">🗑️</button>
+                  </div>
                 </div>
               </div>
               ${isEditing ? this._editClientForm(c, tickets, rates) : ""}
@@ -516,10 +544,18 @@ class TimeTrackCard extends HTMLElement {
             </div>
           `).join("")}
           <div class="alias-add">
-            <input type="text" class="inp" data-bind="alias-zone" placeholder="Zone state (e.g. KGYR-LAT)" style="flex:1" />
+            <select class="sel" data-bind="alias-zone" style="flex:1">
+              <option value="">— Select zone —</option>
+              ${Object.keys(this._hass.states)
+                .filter(e => e.startsWith("zone."))
+                .map(e => {
+                  const name = this._hass.states[e].attributes.friendly_name || e.replace("zone.", "");
+                  return `<option value="${name}">${name}</option>`;
+                }).join("")}
+            </select>
             <select class="sel" data-bind="alias-client" style="flex:1">
               <option value="">— Client —</option>
-              ${clients.map(c => `<option value="${c.name}">${c.name}</option>`).join("")}
+              ${customers.map(c => `<option value="${c.short}">${c.short} — ${c.name}</option>`).join("")}
             </select>
             <button class="btn btn-sm btn-accent" data-act="add-alias">+ Add</button>
           </div>
@@ -582,7 +618,7 @@ class TimeTrackCard extends HTMLElement {
     `;
   }
 
-  _createTicketPanel(customers) {
+  _createTicketPanel(customers, rates) {
     const now = new Date();
     const month = now.toLocaleString("en-US", { month: "long" });
     const year = now.getFullYear();
@@ -598,6 +634,17 @@ class TimeTrackCard extends HTMLElement {
             ${customers.map(c => `
               <option value="${c.short}">
                 ${c.short} — ${c.name}
+              </option>
+            `).join("")}
+          </select>
+        </div>
+
+        <div class="form-row">
+          <label>Service Item / Rate</label>
+          <select class="sel" data-bind="create-rate">
+            ${rates.map(r => `
+              <option value="${r.id}">
+                ${r.name} ($${r.rate})
               </option>
             `).join("")}
           </select>
@@ -625,7 +672,12 @@ class TimeTrackCard extends HTMLElement {
   _addClientPanel(customers, rates) {
     // Get tickets from sensor for the dropdown
     const pSensor = this._gs("sensor.timetrack_pending_entries");
-    const tickets = pSensor?.attributes?.tickets || [];
+    const allTickets = pSensor?.attributes?.tickets || [];
+    // Filter tickets by selected customer if one is chosen
+    const sel = this._selectedMapCustomer || "";
+    const tickets = sel
+      ? allTickets.filter(t => t.customer === sel || !t.customer)
+      : allTickets;
     const openTickets = tickets.filter(t => t.status === "open");
     return `
       <div class="panel add-client-panel">
@@ -636,7 +688,7 @@ class TimeTrackCard extends HTMLElement {
           <select class="sel" data-bind="map-customer">
             <option value="">— Select customer —</option>
             ${customers.map(c => `
-              <option value="${c.short}" data-name="${c.name}">
+              <option value="${c.short}" data-name="${c.name}" ${sel === c.short ? "selected" : ""}>
                 ${c.short} — ${c.name}
               </option>
             `).join("")}
@@ -772,6 +824,16 @@ class TimeTrackCard extends HTMLElement {
       });
     });
 
+    // Rate dropdown change on pending entries
+    $(".rate-sel").forEach(sel => {
+      sel.addEventListener("change", () => {
+        this._svc("edit_entry", {
+          entry_id: parseInt(sel.dataset.eid),
+          rate_id: sel.value,
+        });
+      });
+    });
+
     // Sync tickets
     $("[data-act='sync-tickets']").forEach(b => b.addEventListener("click", () => {
       this._svc("sync_tickets");
@@ -794,11 +856,14 @@ class TimeTrackCard extends HTMLElement {
       const customer = this.shadowRoot.querySelector("[data-bind='create-customer']")?.value;
       const title = this.shadowRoot.querySelector("[data-bind='create-title']")?.value;
       const description = this.shadowRoot.querySelector("[data-bind='create-description']")?.value;
+      const rateId = this.shadowRoot.querySelector("[data-bind='create-rate']")?.value;
 
       if (!customer) { alert("Select a customer"); return; }
       if (!title) { alert("Enter a ticket title"); return; }
 
-      this._svc("create_ticket", { customer, title, description: description || "" });
+      const data = { customer, title, description: description || "" };
+      if (rateId) data.service_item_rate_id = rateId;
+      this._svc("create_ticket", data);
       this._createTicketExpanded = false;
 
       // Auto-sync after a short delay to pick up the new ticket
@@ -841,12 +906,20 @@ class TimeTrackCard extends HTMLElement {
     // Add client toggle
     $("[data-act='toggle-add-client']").forEach(b => b.addEventListener("click", () => {
       this._addClientExpanded = !this._addClientExpanded;
+      this._selectedMapCustomer = "";
+      this.render();
+    }));
+
+    // Map client — customer dropdown filters tickets
+    $("[data-bind='map-customer']").forEach(s => s.addEventListener("change", () => {
+      this._selectedMapCustomer = s.value;
       this.render();
     }));
 
     // Cancel add client
     $("[data-act='cancel-add-client']").forEach(b => b.addEventListener("click", () => {
       this._addClientExpanded = false;
+      this._selectedMapCustomer = "";
       this.render();
     }));
 
@@ -894,6 +967,32 @@ class TimeTrackCard extends HTMLElement {
         billable: cb.checked,
       });
     }));
+
+    // Delete entry (pending tab)
+    $("[data-act='delete-entry']").forEach(b => b.addEventListener("click", () => {
+      if (!confirm(`Delete this time entry? This cannot be undone.`)) return;
+      this._svc("delete_entry", { entry_id: parseInt(b.dataset.id) });
+      setTimeout(() => this.render(), 500);
+    }));
+
+    // Delete client (setup tab)
+    $("[data-act='delete-client']").forEach(b => b.addEventListener("click", () => {
+      const name = b.dataset.client;
+      if (!confirm(`Delete client "${name}" and all its pending entries?\n\nThis cannot be undone.`)) return;
+      this._svc("delete_client", { client: name });
+      setTimeout(() => this.render(), 500);
+    }));
+
+    // Client reassignment on pending entries
+    $(".client-sel").forEach(sel => {
+      sel.addEventListener("change", () => {
+        this._svc("edit_entry", {
+          entry_id: parseInt(sel.dataset.eid),
+          client_name: sel.value,
+        });
+        setTimeout(() => this.render(), 500);
+      });
+    });
 
     // Add zone alias
     $("[data-act='add-alias']").forEach(b => b.addEventListener("click", () => {
@@ -1058,6 +1157,8 @@ class TimeTrackCard extends HTMLElement {
       .btn-icon { background: none; border: none; cursor: pointer; padding: 2px 4px;
                   font-size: 14px; opacity: 0.5; transition: opacity 0.2s; }
       .btn-icon:hover { opacity: 1; }
+      .btn-icon-danger:hover { opacity: 1; filter: brightness(1.2); }
+      .crow-actions { display: flex; gap: 4px; align-items: center; margin-top: 4px; }
       .edit-client-panel { margin: 0 12px 12px; border-radius: 0 0 8px 8px; }
 
       /* Rates */

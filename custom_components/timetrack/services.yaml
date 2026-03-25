@@ -97,7 +97,7 @@ push_entries:
 
 edit_entry:
   name: Edit Entry
-  description: Edit a pending entry's description or ticket before pushing.
+  description: Edit a pending entry's description, ticket, rate, or reassign to a different client.
   fields:
     entry_id:
       name: Entry ID
@@ -116,6 +116,13 @@ edit_entry:
       name: Ticket ID
       description: Reassign to a different MSP Manager ticket UUID.
       required: false
+      selector:
+        text:
+    client_name:
+      name: Client Name
+      description: Reassign entry to a different client (e.g., switch from LuxAir to GGA).
+      required: false
+      example: "GGA"
       selector:
         text:
 
@@ -192,5 +199,29 @@ remove_zone_alias:
       name: Zone State
       description: The zone state to unmap.
       required: true
+      selector:
+        text:
+
+delete_entry:
+  name: Delete Entry
+  description: Delete a pending or failed time entry. Already-pushed entries cannot be deleted.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: The time entry ID to delete.
+      required: true
+      selector:
+        number:
+          min: 1
+
+delete_client:
+  name: Delete Client
+  description: Delete a client mapping and its pending/failed entries.
+  fields:
+    client:
+      name: Client
+      description: The client short name to delete.
+      required: true
+      example: "LAT"
       selector:
         text:

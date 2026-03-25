@@ -382,7 +382,7 @@ def _register_services(
         )
 
     async def handle_edit_entry(call: ServiceCall) -> None:
-        """Edit an entry's description or ticket assignment."""
+        """Edit an entry's description, ticket, rate, billable, or client."""
         if not _check_auth(call, authorized_user_id):
             return
         entry_id = call.data.get("entry_id")
@@ -390,9 +390,10 @@ def _register_services(
         ticket_id = call.data.get("ticket_id")
         billable = call.data.get("billable")
         rate_id = call.data.get("rate_id")
+        new_client = call.data.get("client_name")
 
-        # Validate ticket-client association
-        if ticket_id:
+        # Validate ticket-client association (skip if client is being reassigned)
+        if ticket_id and not new_client:
             ticket = await hass.async_add_executor_job(
                 store.get_ticket_by_id, ticket_id
             )
@@ -408,8 +409,21 @@ def _register_services(
                     )
                     return
 
+        # When client is reassigned, clear the ticket (new client needs new ticket)
+        if new_client:
+            entry = await hass.async_add_executor_job(
+                store.get_entry_by_id, entry_id
+            )
+            if entry and entry["client_name"] != new_client:
+                if ticket_id is None:
+                    ticket_id = ""  # Clear old ticket on reassignment
+                _LOGGER.info(
+                    "Reassigning entry %d: %s → %s",
+                    entry_id, entry["client_name"], new_client,
+                )
+
         await hass.async_add_executor_job(
-            store.update_entry, entry_id, description, ticket_id, billable, rate_id
+            store.update_entry, entry_id, description, ticket_id, billable, rate_id, new_client
         )
         _LOGGER.info("Updated entry %d", entry_id)
 
@@ -478,6 +492,7 @@ def _register_services(
             vol.Optional("ticket_id"): cv.string,
             vol.Optional("billable"): cv.boolean,
             vol.Optional("rate_id"): cv.string,
+            vol.Optional("client_name"): cv.string,
         }),
     )
 
@@ -644,10 +659,48 @@ def _register_services(
         }),
     )
 
+    async def handle_delete_entry(call: ServiceCall) -> None:
+        """Delete a pending/failed time entry."""
+        if not _check_auth(call, authorized_user_id):
+            return
+        entry_id = call.data.get("entry_id")
+        deleted = await hass.async_add_executor_job(store.delete_entry, entry_id)
+        if deleted:
+            _LOGGER.info("Deleted entry %d", entry_id)
+            hass.bus.async_fire("timetrack_entry_deleted", {"entry_id": entry_id})
+        else:
+            _LOGGER.warning("Could not delete entry %d (not found or already pushed)", entry_id)
+
+    async def handle_delete_client(call: ServiceCall) -> None:
+        """Delete a client mapping and its pending entries."""
+        if not _check_auth(call, authorized_user_id):
+            return
+        client = call.data.get("client")
+        deleted = await hass.async_add_executor_job(store.delete_client, client)
+        if deleted:
+            _LOGGER.info("Deleted client '%s'", client)
+            hass.bus.async_fire("timetrack_client_deleted", {"client": client})
+        else:
+            _LOGGER.warning("Could not delete client '%s' (not found)", client)
+
+    hass.services.async_register(
+        DOMAIN, "delete_entry", handle_delete_entry,
+        schema=vol.Schema({
+            vol.Required("entry_id"): cv.positive_int,
+        }),
+    )
+    hass.services.async_register(
+        DOMAIN, "delete_client", handle_delete_client,
+        schema=vol.Schema({
+            vol.Required("client"): cv.string,
+        }),
+    )
+
     _LOGGER.info(
         "TimeTrack services registered: clock_in, clock_out, report, "
         "map_client, push_entries, edit_entry, sync_tickets, create_ticket, "
-        "generate_entries, add_zone_alias, remove_zone_alias"
+        "generate_entries, add_zone_alias, remove_zone_alias, "
+        "delete_entry, delete_client"
     )
 
     # Auto-sync active tickets and rates from MSP Manager on startup
