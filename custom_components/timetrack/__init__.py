@@ -97,8 +97,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry_id = event.data.get("entry_id")
         client_name = event.data.get("client")
 
-        # Look up default ticket for this client
-        client_info = store.get_client_by_zone(event.data.get("zone", ""))
+        # Look up default ticket for this client (resolve zone aliases)
+        zone = event.data.get("zone", "")
+        resolved_name = store.resolve_zone_to_client(zone)
+        client_info = store.get_client_by_name(resolved_name) if resolved_name else None
         if client_info and client_info.get("msp_ticket_id"):
             # Tentatively assign the default ticket
             store.update_entry(

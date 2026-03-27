@@ -105,7 +105,10 @@ class ZoneTracker:
 
     def _handle_clock_in(self, zone: str) -> None:
         """Clock in to a TimeTrack zone."""
-        client_name = zone.replace(TIMETRACK_ZONE_PREFIX, "")
+        # Resolve through zone aliases first, then client table, then prefix-strip
+        client_name = self.store.resolve_zone_to_client(zone)
+        if not client_name:
+            client_name = zone.replace(TIMETRACK_ZONE_PREFIX, "")
 
         # Auto-register client if not known
         existing = self.store.get_client_by_zone(zone)
@@ -131,7 +134,7 @@ class ZoneTracker:
 
     def _handle_clock_out(self, zone: str) -> None:
         """Clock out of a TimeTrack zone."""
-        client_name = zone.replace(TIMETRACK_ZONE_PREFIX, "")
+        client_name = self.store.resolve_zone_to_client(zone) or zone.replace(TIMETRACK_ZONE_PREFIX, "")
 
         if not self._current_entry_id:
             # Try to find an open entry
@@ -194,7 +197,9 @@ class ZoneTracker:
         if not zone:
             zone = f"{TIMETRACK_ZONE_PREFIX}{client}"
         self._handle_clock_in(zone)
-        return {"status": "clocked_in", "client": client}
+        # Return the resolved client name, not the raw input
+        resolved = self.store.resolve_zone_to_client(zone) or client
+        return {"status": "clocked_in", "client": resolved}
 
     def manual_clock_out(self) -> dict:
         """Manually clock out the current entry."""
