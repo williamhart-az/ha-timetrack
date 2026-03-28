@@ -142,6 +142,15 @@ class TimeTrackPendingEntriesSensor(TimeTrackBaseSensor):
         rates = self._store.get_service_item_rates()
         tickets = self._store.get_tickets()
         aliases = self._store.get_zone_aliases()
+        users = self._store.get_msp_users()
+
+        # Get current resource ID from integration data
+        entry_data = self._tracker._hass.data.get("timetrack", {}) if hasattr(self._tracker, '_hass') else {}
+        current_resource_id = ""
+        for eid, edata in entry_data.items():
+            if isinstance(edata, dict) and "msp_resource_id" in edata:
+                current_resource_id = edata.get("msp_resource_id", "")
+                break
 
         def _entry_dict(e):
             return {
@@ -194,4 +203,9 @@ class TimeTrackPendingEntriesSensor(TimeTrackBaseSensor):
                 for t in tickets
             ],
             "zone_aliases": aliases,
+            "users": [
+                {"id": u["id"], "name": u["name"], "email": u.get("email", "")}
+                for u in users
+            ],
+            "msp_resource_id": current_resource_id,
         }

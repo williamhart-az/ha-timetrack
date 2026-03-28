@@ -13,6 +13,7 @@ from .const import (
     CONF_MSP_URL,
     CONF_MSP_API_KEY,
     CONF_MSP_DRY_RUN,
+    CONF_MSP_RESOURCE_ID,
     CONF_ROUNDING_MINUTES,
     CONF_MIN_SESSION_MINUTES,
     DEFAULT_PERSON_ENTITY,
@@ -65,6 +66,7 @@ class TimeTrackConfigFlow(ConfigFlow, domain=DOMAIN):
                         CONF_MIN_SESSION_MINUTES,
                         default=DEFAULT_MIN_SESSION_MINUTES,
                     ): int,
+                    vol.Optional(CONF_MSP_RESOURCE_ID, default=""): str,
                 }
             ),
         )
@@ -114,6 +116,10 @@ class TimeTrackOptionsFlow(OptionsFlow):
                         CONF_MIN_SESSION_MINUTES,
                         default=current.get(CONF_MIN_SESSION_MINUTES, DEFAULT_MIN_SESSION_MINUTES),
                     ): int,
+                    vol.Optional(
+                        CONF_MSP_RESOURCE_ID,
+                        default=current.get(CONF_MSP_RESOURCE_ID, ""),
+                    ): str,
                 }
             ),
         )

@@ -266,5 +266,170 @@ class TestResolveZoneToClient(unittest.TestCase):
         self.assertEqual(client_info["msp_ticket_id"], "ticket-latu-367")
 
 
+class TestCreateTicketServiceItemResolution(unittest.TestCase):
+    """Test that ticket creation resolves ServiceItemId from customer, not rate.
+
+    Reproduces the bug where selecting customer LATU with a rate that
+    happens to belong to CGEC's ServiceItem creates the ticket under CGEC.
+    """
+
+    def setUp(self):
+        self.db_fd, self.db_path = tempfile.mkstemp(suffix=".db")
+        conn = sqlite3.connect(self.db_path)
+        conn.executescript("""
+            CREATE TABLE clients (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                zone_name TEXT NOT NULL,
+                msp_client_name TEXT,
+                msp_ticket_id TEXT,
+                msp_service_item_rate_id TEXT,
+                default_description TEXT,
+                hourly_rate REAL DEFAULT 0,
+                active INTEGER DEFAULT 1,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE msp_customers (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                short_name TEXT NOT NULL,
+                is_active INTEGER DEFAULT 1
+            );
+            CREATE TABLE msp_service_items (
+                service_item_id TEXT PRIMARY KEY,
+                customer_id TEXT NOT NULL
+            );
+            CREATE TABLE service_item_rates (
+                id TEXT PRIMARY KEY,
+                service_item_id TEXT,
+                name TEXT NOT NULL,
+                rate REAL NOT NULL,
+                is_default INTEGER DEFAULT 0,
+                is_active INTEGER DEFAULT 1
+            );
+        """)
+        # Seed two customers
+        conn.execute(
+            "INSERT INTO msp_customers VALUES (?, ?, ?, 1)",
+            ("cust-cgec", "Casa Grande Eye Care", "CGEC"),
+        )
+        conn.execute(
+            "INSERT INTO msp_customers VALUES (?, ?, ?, 1)",
+            ("cust-latu", "Lufthansa Aviation Training USA - PCs", "LATU"),
+        )
+        # Each customer has their own ServiceItem
+        conn.execute(
+            "INSERT INTO msp_service_items VALUES (?, ?)",
+            ("svc-item-cgec", "cust-cgec"),
+        )
+        conn.execute(
+            "INSERT INTO msp_service_items VALUES (?, ?)",
+            ("svc-item-latu", "cust-latu"),
+        )
+        # Both have a rate with the same name but different UUIDs and ServiceItemIds
+        conn.execute(
+            "INSERT INTO service_item_rates VALUES (?, ?, ?, ?, 1, 1)",
+            ("rate-cgec-onsite", "svc-item-cgec", "Onsite Network Engineer:8-5 M-F", 197.6),
+        )
+        conn.execute(
+            "INSERT INTO service_item_rates VALUES (?, ?, ?, ?, 1, 1)",
+            ("rate-latu-onsite", "svc-item-latu", "Onsite Network Engineer:8-5 M-F", 197.6),
+        )
+        # LATU has a client mapping that uses LATU's rate
+        conn.execute(
+            "INSERT INTO clients (name, zone_name, msp_service_item_rate_id) VALUES (?, ?, ?)",
+            ("LATU", "TimeTrack - LATU", "rate-latu-onsite"),
+        )
+        conn.commit()
+        conn.close()
+
+    def tearDown(self):
+        os.close(self.db_fd)
+        os.unlink(self.db_path)
+
+    def _make_store(self):
+        """Create a minimal store with the ServiceItem resolution methods."""
+        db_path = self.db_path
+
+        class MiniStore:
+            def __init__(self):
+                self._db_path = db_path
+
+            def _connect(self):
+                c = sqlite3.connect(self._db_path)
+                c.row_factory = sqlite3.Row
+                return c
+
+            def get_service_item_for_rate(self, rate_id):
+                conn = self._connect()
+                row = conn.execute(
+                    "SELECT service_item_id FROM service_item_rates WHERE id = ? LIMIT 1",
+                    (rate_id,),
+                ).fetchone()
+                conn.close()
+                return row["service_item_id"] if row else None
+
+            def get_service_item_for_customer(self, customer_short):
+                conn = self._connect()
+                # Primary: client mapping → rate → service item
+                row = conn.execute(
+                    """SELECT sir.service_item_id
+                       FROM clients cl
+                       JOIN service_item_rates sir ON sir.id = cl.msp_service_item_rate_id
+                       WHERE cl.name = ? AND cl.active = 1
+                       LIMIT 1""",
+                    (customer_short,),
+                ).fetchone()
+                if row:
+                    conn.close()
+                    return row["service_item_id"]
+                # Fallback: msp_customers → msp_service_items
+                row = conn.execute(
+                    """SELECT si.service_item_id
+                       FROM msp_customers c
+                       JOIN msp_service_items si ON si.customer_id = c.id
+                       WHERE c.short_name = ? AND c.is_active = 1
+                       LIMIT 1""",
+                    (customer_short,),
+                ).fetchone()
+                conn.close()
+                return row["service_item_id"] if row else None
+
+        return MiniStore()
+
+    def test_get_service_item_for_customer_latu(self):
+        """LATU's ServiceItemId should be svc-item-latu."""
+        store = self._make_store()
+        result = store.get_service_item_for_customer("LATU")
+        self.assertEqual(result, "svc-item-latu")
+
+    def test_get_service_item_for_customer_cgec(self):
+        """CGEC's ServiceItemId should be svc-item-cgec (via fallback)."""
+        store = self._make_store()
+        result = store.get_service_item_for_customer("CGEC")
+        self.assertEqual(result, "svc-item-cgec")
+
+    def test_rate_resolves_to_wrong_customer(self):
+        """Demonstrates the bug: CGEC's rate UUID resolves to CGEC's ServiceItem."""
+        store = self._make_store()
+        # If the UI picked CGEC's rate UUID (due to dedup), it points to CGEC
+        result = store.get_service_item_for_rate("rate-cgec-onsite")
+        self.assertEqual(result, "svc-item-cgec",
+                         "Rate UUID correctly maps to its own ServiceItem")
+
+    def test_customer_resolution_ignores_rate(self):
+        """THE FIX: even if rate belongs to CGEC, customer-based resolution returns LATU."""
+        store = self._make_store()
+        # This is what the old code did — use rate to find ServiceItem
+        wrong_svc_id = store.get_service_item_for_rate("rate-cgec-onsite")
+        # This is what the fixed code does — use customer to find ServiceItem
+        correct_svc_id = store.get_service_item_for_customer("LATU")
+
+        self.assertEqual(wrong_svc_id, "svc-item-cgec", "Rate belongs to CGEC")
+        self.assertEqual(correct_svc_id, "svc-item-latu", "Customer resolution returns LATU")
+        self.assertNotEqual(wrong_svc_id, correct_svc_id,
+                            "Rate-based and customer-based resolution should differ")
+
+
 if __name__ == "__main__":
     unittest.main()

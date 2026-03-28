@@ -17,6 +17,7 @@ from .const import (
     CONF_MSP_URL,
     CONF_MSP_API_KEY,
     CONF_MSP_DRY_RUN,
+    CONF_MSP_RESOURCE_ID,
     CONF_ROUNDING_MINUTES,
     CONF_MIN_SESSION_MINUTES,
     DEFAULT_PERSON_ENTITY,
@@ -88,6 +89,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "tracker": tracker,
         "msp_client": msp_client,
         "authorized_user_id": authorized_user_id,
+        "msp_resource_id": entry.data.get(CONF_MSP_RESOURCE_ID, ""),
     }
 
     # Listen for clock-out events — tentative ticket assignment (NO auto-push)
@@ -532,16 +534,13 @@ def _register_services(
         description = call.data.get("description", "")
         rate_id = call.data.get("service_item_rate_id")
 
-        # Resolve ServiceItemId: from selected rate, or from client's default rate
-        svc_id = None
-        if rate_id:
-            svc_id = await hass.async_add_executor_job(
-                store.get_service_item_for_rate, rate_id
-            )
-        if not svc_id:
-            svc_id = await hass.async_add_executor_job(
-                store.get_service_item_for_customer, customer_short
-            )
+        # Always resolve ServiceItemId from the CUSTOMER, not the rate.
+        # Rates are per-ServiceItem and the UI deduplicates by name,
+        # so the selected rate UUID may belong to a different customer's
+        # ServiceItem (e.g. LATU rate resolves to CGEC's ServiceItemId).
+        svc_id = await hass.async_add_executor_job(
+            store.get_service_item_for_customer, customer_short
+        )
         if not svc_id:
             _LOGGER.error("No ServiceItemId found for customer '%s'", customer_short)
             return
@@ -556,8 +555,11 @@ def _register_services(
                 "  customer:       %s\n"
                 "  title:          %s\n"
                 "  service_item:   %s\n"
+                "  resource_id:    %s\n"
                 "  description:    %s",
-                customer_short, title, svc_id, description or "(none)",
+                customer_short, title, svc_id,
+                hass.data[DOMAIN][entry.entry_id].get("msp_resource_id", "(none)"),
+                description or "(none)",
             )
             hass.bus.async_fire("timetrack_ticket_created", {
                 "dry_run": True,
@@ -567,10 +569,13 @@ def _register_services(
             })
             return
 
+        # Get resource ID for ticket assignment (from config)
+        resource_id = hass.data[DOMAIN][entry.entry_id].get("msp_resource_id", "")
         result = await msp_client.create_ticket(
             title=title,
             service_item_id=svc_id,
             description=description,
+            assigned_resource_id=resource_id or None,
         )
         if result:
             # Fetch service items for customer tagging
@@ -598,6 +603,31 @@ def _register_services(
             vol.Required("title"): cv.string,
             vol.Optional("description", default=""): cv.string,
             vol.Optional("service_item_rate_id"): cv.string,
+        }),
+    )
+
+    # ── Set Resource ID (from dashboard) ──
+
+    async def handle_set_resource_id(call: ServiceCall) -> None:
+        """Set the MSP Manager resource ID for ticket assignment."""
+        if not _check_auth(call, authorized_user_id):
+            return
+        resource_id = call.data.get("resource_id", "")
+        # Update in-memory
+        hass.data[DOMAIN][entry.entry_id]["msp_resource_id"] = resource_id
+        # Persist to config entry
+        new_data = {**entry.data, CONF_MSP_RESOURCE_ID: resource_id}
+        hass.config_entries.async_update_entry(entry, data=new_data)
+        _LOGGER.info(
+            "🔧 MSP resource ID %s to '%s'",
+            "set" if resource_id else "cleared",
+            resource_id,
+        )
+
+    hass.services.async_register(
+        DOMAIN, "set_resource_id", handle_set_resource_id,
+        schema=vol.Schema({
+            vol.Required("resource_id"): cv.string,
         }),
     )
 
@@ -766,6 +796,14 @@ def _register_services(
                     _LOGGER.info("🚀 Startup: synced %d service item rates from MSP Manager", count)
             except Exception as exc:
                 _LOGGER.warning("Startup rate sync failed: %s", exc)
+            # Users for ticket assignment
+            try:
+                users = await msp_client.fetch_users()
+                if users:
+                    count = await hass.async_add_executor_job(store.sync_users, users)
+                    _LOGGER.info("🚀 Startup: synced %d users from MSP Manager", count)
+            except Exception as exc:
+                _LOGGER.warning("Startup user sync failed: %s", exc)
 
         hass.bus.async_listen_once("homeassistant_started", _startup_sync)
 

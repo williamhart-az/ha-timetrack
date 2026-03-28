@@ -265,6 +265,13 @@ class TimeTrackStore:
             service_item_id TEXT PRIMARY KEY,
             customer_id TEXT NOT NULL
         )""")
+        # Migrate: ensure msp_users table exists (added for ticket assignment)
+        conn.execute("""CREATE TABLE IF NOT EXISTS msp_users (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            email TEXT,
+            is_active INTEGER DEFAULT 1
+        )""")
         # No hardcoded seed data — rates, customers, and tickets are
         # populated from the MSP Manager API at startup.
         conn.commit()
@@ -1090,6 +1097,63 @@ class TimeTrackStore:
         conn = self._connect()
         rows = conn.execute(
             "SELECT * FROM msp_customers WHERE is_active = 1 ORDER BY short_name"
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+
+    def sync_users(self, api_users: list[dict]) -> int:
+        """Sync users from MSP Manager API.
+
+        Upserts user data into the msp_users table.
+        Field names are best-guess from API schema — logged on first fetch.
+        """
+        conn = self._connect()
+        count = 0
+        for u in api_users:
+            # Try multiple possible field names for the user ID
+            user_id = (
+                u.get("UserId")
+                or u.get("Id")
+                or u.get("ResourceId")
+                or u.get("userId")
+            )
+            if not user_id:
+                continue
+            name = (
+                u.get("UserName")
+                or u.get("Name")
+                or u.get("DisplayName")
+                or u.get("userName")
+                or "Unknown"
+            )
+            email = (
+                u.get("EmailAddress")
+                or u.get("Email")
+                or u.get("emailAddress")
+                or ""
+            )
+            is_active = 1
+            # Check for status fields
+            if "IsActive" in u:
+                is_active = 1 if u["IsActive"] else 0
+            elif "UserStatusId" in u:
+                is_active = 1 if u["UserStatusId"] == 1 else 0
+            conn.execute(
+                """INSERT OR REPLACE INTO msp_users (id, name, email, is_active)
+                   VALUES (?, ?, ?, ?)""",
+                (user_id, name, email, is_active),
+            )
+            count += 1
+        conn.commit()
+        conn.close()
+        _LOGGER.info("Synced %d users", count)
+        return count
+
+    def get_msp_users(self) -> list[dict]:
+        """Get all MSP Manager users."""
+        conn = self._connect()
+        rows = conn.execute(
+            "SELECT * FROM msp_users WHERE is_active = 1 ORDER BY name"
         ).fetchall()
         conn.close()
         return [dict(r) for r in rows]

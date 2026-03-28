@@ -11,7 +11,8 @@
                     "msp_manager_api_key": "MSP Manager API Key",
                     "msp_dry_run": "Dry Run (log only, don't push to MSP Manager)",
                     "rounding_minutes": "Round to nearest (minutes)",
-                    "min_session_minutes": "Minimum session length (minutes)"
+                    "min_session_minutes": "Minimum session length (minutes)",
+                    "msp_resource_id": "MSP Manager Resource ID (your user UUID)"
                 }
             }
         }
@@ -27,7 +28,8 @@
                     "msp_manager_api_key": "MSP Manager API Key",
                     "msp_dry_run": "Dry Run (log only, don't push to MSP Manager)",
                     "rounding_minutes": "Round to nearest (minutes)",
-                    "min_session_minutes": "Minimum session length (minutes)"
+                    "min_session_minutes": "Minimum session length (minutes)",
+                    "msp_resource_id": "MSP Manager Resource ID (your user UUID)"
                 }
             }
         }

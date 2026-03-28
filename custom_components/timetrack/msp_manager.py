@@ -178,6 +178,45 @@ class MSPManagerClient:
             _LOGGER.error("Error fetching customers: %s", exc)
             return []
 
+    async def fetch_users(self) -> list:
+        """Fetch users/technicians from MSP Manager.
+
+        Returns list of user objects for resource assignment on tickets.
+        Logs field names on first fetch for schema discovery.
+        """
+        session = await self._get_session()
+        try:
+            async with session.get(
+                f"{self.base_url}/Users",
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    users = data if isinstance(data, list) else data.get("value", [])
+                    _LOGGER.info("Fetched %d users from MSP Manager", len(users))
+                    # Log schema on first fetch for discovery
+                    if users:
+                        _LOGGER.info(
+                            "MSP User fields: %s", list(users[0].keys())
+                        )
+                        for u in users:
+                            _LOGGER.info(
+                                "  User: %s (ID: %s, Email: %s)",
+                                u.get("UserName", u.get("Name", "?")),
+                                u.get("UserId", u.get("Id", "?")),
+                                u.get("EmailAddress", u.get("Email", "?")),
+                            )
+                    return users
+                else:
+                    body = await resp.text()
+                    _LOGGER.error(
+                        "Failed to fetch users: HTTP %d — %s",
+                        resp.status, body[:200],
+                    )
+                    return []
+        except Exception as exc:
+            _LOGGER.error("Error fetching users: %s", exc)
+            return []
+
     async def create_time_entry(
         self,
         ticket_id: str,
@@ -274,6 +313,7 @@ class MSPManagerClient:
         description: str = "",
         priority: int = 2,
         is_billable: bool = True,
+        assigned_resource_id: str | None = None,
     ) -> Optional[dict]:
         """Create a new ticket in MSP Manager.
 
@@ -298,6 +338,8 @@ class MSPManagerClient:
             "IsBillable": is_billable,
             "IsTaxable": False,
         }
+        if assigned_resource_id:
+            payload["AssignedResourceId"] = assigned_resource_id
 
         _LOGGER.info("Creating ticket in MSP Manager: %s", title)
 

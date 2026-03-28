@@ -158,6 +158,8 @@ class TimeTrackCard extends HTMLElement {
     });
     const tickets = a.tickets || [];
     const aliases = a.zone_aliases || [];
+    const users = a.users || [];
+    const currentResourceId = a.msp_resource_id || "";
 
     this.shadowRoot.innerHTML = `
       <style>${this._css()}</style>
@@ -169,7 +171,7 @@ class TimeTrackCard extends HTMLElement {
           <div class="tc">
             ${this._activeTab === "status" ? this._tabStatus(entries) : ""}
             ${this._activeTab === "pending" ? this._tabPending(pendingEntries, clients, tickets, rates, customers) : ""}
-            ${this._activeTab === "clients" ? this._tabClients(clients, rates, customers, tickets, aliases) : ""}
+            ${this._activeTab === "clients" ? this._tabClients(clients, rates, customers, tickets, aliases, users, currentResourceId) : ""}
           </div>
         </div>
       </ha-card>
@@ -480,10 +482,37 @@ class TimeTrackCard extends HTMLElement {
     `;
   }
 
+  // ── Resource Selector ──
+
+  _resourceSelector(users, currentResourceId) {
+    if (!users.length) return "";
+    const currentUser = users.find(u => u.id === currentResourceId);
+    return `
+      <div class="sec resource-sec">
+        <div class="sec-hdr">
+          <div class="sec-t">👤 Ticket Assignment</div>
+          <div style="color:var(--secondary-text-color,#999);font-size:0.8em">Default technician assigned to new tickets</div>
+        </div>
+        <div class="form-row" style="margin-top:6px">
+          <select class="sel" data-bind="resource-select">
+            <option value="">— No assignment —</option>
+            ${users.map(u => `
+              <option value="${u.id}" ${u.id === currentResourceId ? "selected" : ""}>
+                ${u.name}${u.email ? " (" + u.email + ")" : ""}
+              </option>
+            `).join("")}
+          </select>
+        </div>
+        ${currentUser ? `<div class="resource-active">✅ Assigned to: <strong>${currentUser.name}</strong></div>` : ""}
+      </div>
+    `;
+  }
+
   // ── Tab: Clients ──
 
-  _tabClients(clients, rates, customers, tickets, aliases) {
+  _tabClients(clients, rates, customers, tickets, aliases, users, currentResourceId) {
     return `
+      ${this._resourceSelector(users, currentResourceId)}
       <div class="sec">
         <div class="sec-hdr">
           <div class="sec-t">Client Mapping</div>
@@ -862,6 +891,12 @@ class TimeTrackCard extends HTMLElement {
       this.render();
     }));
 
+    // Resource selector change
+    $("[data-bind='resource-select']").forEach(sel => sel.addEventListener("change", (e) => {
+      const resourceId = e.target.value;
+      this._svc("set_resource_id", { resource_id: resourceId });
+    }));
+
     // Submit create ticket
     $("[data-act='do-create-ticket']").forEach(b => b.addEventListener("click", () => {
       const customer = this.shadowRoot.querySelector("[data-bind='create-customer']")?.value;
@@ -1155,6 +1190,8 @@ class TimeTrackCard extends HTMLElement {
                 border-radius: 12px; font-size: 11px;
                 background: rgba(79,195,247,0.12); color: var(--ac); font-family: monospace; }
       .tbadge-warn { background: rgba(255,167,38,0.12); color: var(--or); font-family: inherit; }
+      .resource-sec { border-bottom: 1px solid var(--divider-color, rgba(255,255,255,0.05)); padding-bottom: 12px; margin-bottom: 4px; }
+      .resource-active { margin-top: 6px; font-size: 0.85em; color: var(--gn); }
 
       /* Client Rows */
       .crow { border-radius: 8px; background: var(--sf); margin-bottom: 6px;

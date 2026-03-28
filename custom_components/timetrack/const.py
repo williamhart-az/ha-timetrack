@@ -9,6 +9,7 @@ CONF_MSP_API_KEY = "msp_manager_api_key"
 CONF_ROUNDING_MINUTES = "rounding_minutes"
 CONF_MIN_SESSION_MINUTES = "min_session_minutes"
 CONF_MSP_DRY_RUN = "msp_dry_run"
+CONF_MSP_RESOURCE_ID = "msp_resource_id"
 
 # Defaults
 DEFAULT_PERSON_ENTITY = ""  # Must be set during config flow
