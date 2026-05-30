@@ -189,7 +189,13 @@ class TimeTrackPendingEntriesSensor(TimeTrackBaseSensor):
                 for c in customers
             ],
             "rates": [
-                {"id": r["id"], "name": r["name"], "rate": r["rate"], "default": bool(r["is_default"])}
+                {
+                    "id": r["id"],
+                    "name": r["name"],
+                    "rate": r["rate"],
+                    "default": bool(r["is_default"]),
+                    "service_item_id": r.get("service_item_id"),
+                }
                 for r in rates
             ],
             "tickets": [
@@ -199,6 +205,7 @@ class TimeTrackPendingEntriesSensor(TimeTrackBaseSensor):
                     "title": t["title"],
                     "customer": t.get("customer_short", ""),
                     "status": t.get("status", "open"),
+                    "service_item_id": t.get("service_item_id"),
                 }
                 for t in tickets
             ],

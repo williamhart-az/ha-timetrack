@@ -338,6 +338,25 @@ class TimeTrackStore:
         conn.close()
         return [dict(r) for r in rows]
 
+    def get_rate_by_id(self, rate_id: str) -> Optional[dict]:
+        """Get a single rate by its ID."""
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT * FROM service_item_rates WHERE id = ?", (rate_id,)
+        ).fetchone()
+        conn.close()
+        return dict(row) if row else None
+
+    def get_rate_by_name_and_service_item(self, name: str, service_item_id: str) -> Optional[dict]:
+        """Get a single rate by its name and service_item_id."""
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT * FROM service_item_rates WHERE name = ? AND service_item_id = ?",
+            (name, service_item_id)
+        ).fetchone()
+        conn.close()
+        return dict(row) if row else None
+
     def sync_service_item_rates(self, api_rates: list[dict]) -> int:
         """Sync service item rates from MSP Manager API.
 

@@ -232,6 +232,28 @@ async def _push_single_entry(
     entry_id = entry["id"]
     ticket_id = entry.get("resolved_ticket_id") or entry.get("msp_ticket_id")
     rate_id = entry.get("msp_rate_id") or entry.get("resolved_rate_id") or entry.get("msp_service_item_rate_id") or store.get_default_rate_id()
+
+    # Self-heal rate_id if it belongs to a different service item
+    if ticket_id and rate_id:
+        ticket_info = await hass.async_add_executor_job(store.get_ticket_by_id, ticket_id)
+        ticket_service_item_id = ticket_info.get("service_item_id") if ticket_info else None
+
+        if ticket_service_item_id:
+            rate_info = await hass.async_add_executor_job(store.get_rate_by_id, rate_id)
+            if rate_info and rate_info.get("service_item_id") != ticket_service_item_id:
+                _LOGGER.info(
+                    "Rate ID %s ('%s') belongs to service item %s, but ticket %s expects %s. Self-healing...",
+                    rate_id, rate_info.get("name"), rate_info.get("service_item_id"),
+                    ticket_id, ticket_service_item_id
+                )
+                correct_rate = await hass.async_add_executor_job(
+                    store.get_rate_by_name_and_service_item,
+                    rate_info.get("name"), ticket_service_item_id
+                )
+                if correct_rate:
+                    _LOGGER.info("✅ Self-healed rate ID %s -> %s", rate_id, correct_rate["id"])
+                    rate_id = correct_rate["id"]
+
     client_name = entry["client_name"]
     # Description priority: entry description > client default > generic fallback
     client_info = await hass.async_add_executor_job(

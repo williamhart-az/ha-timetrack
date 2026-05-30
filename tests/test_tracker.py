@@ -431,5 +431,84 @@ class TestCreateTicketServiceItemResolution(unittest.TestCase):
                             "Rate-based and customer-based resolution should differ")
 
 
+class TestSelfHealingRates(unittest.TestCase):
+    """Test the self-healing rate resolution helpers and logic."""
+
+    def setUp(self):
+        self.db_fd, self.db_path = tempfile.mkstemp(suffix=".db")
+        conn = sqlite3.connect(self.db_path)
+        conn.executescript("""
+            CREATE TABLE service_item_rates (
+                id TEXT PRIMARY KEY,
+                service_item_id TEXT,
+                name TEXT NOT NULL,
+                rate REAL NOT NULL,
+                is_default INTEGER DEFAULT 0,
+                is_active INTEGER DEFAULT 1
+            );
+        """)
+        # Seed rates for CGEC and DI
+        conn.execute(
+            "INSERT INTO service_item_rates VALUES (?, ?, ?, ?, 1, 1)",
+            ("rate-cgec-weekend", "svc-item-cgec", "Weekend Rate", 395.2),
+        )
+        conn.execute(
+            "INSERT INTO service_item_rates VALUES (?, ?, ?, ?, 1, 1)",
+            ("rate-di-weekend", "svc-item-di", "Weekend Rate", 395.2),
+        )
+        conn.commit()
+        conn.close()
+
+    def tearDown(self):
+        os.close(self.db_fd)
+        os.unlink(self.db_path)
+
+    def _make_store(self):
+        db_path = self.db_path
+        class MiniStore:
+            def __init__(self):
+                self._db_path = db_path
+
+            def _connect(self):
+                c = sqlite3.connect(self._db_path)
+                c.row_factory = sqlite3.Row
+                return c
+
+            def get_rate_by_id(self, rate_id):
+                conn = self._connect()
+                row = conn.execute(
+                    "SELECT * FROM service_item_rates WHERE id = ? LIMIT 1",
+                    (rate_id,),
+                ).fetchone()
+                conn.close()
+                return dict(row) if row else None
+
+            def get_rate_by_name_and_service_item(self, name, service_item_id):
+                conn = self._connect()
+                row = conn.execute(
+                    "SELECT * FROM service_item_rates WHERE name = ? AND service_item_id = ? AND is_active = 1 LIMIT 1",
+                    (name, service_item_id),
+                ).fetchone()
+                conn.close()
+                return dict(row) if row else None
+        return MiniStore()
+
+    def test_get_rate_by_id(self):
+        """Test retrieving a rate by its ID."""
+        store = self._make_store()
+        rate = store.get_rate_by_id("rate-cgec-weekend")
+        self.assertIsNotNone(rate)
+        self.assertEqual(rate["name"], "Weekend Rate")
+        self.assertEqual(rate["service_item_id"], "svc-item-cgec")
+
+    def test_get_rate_by_name_and_service_item(self):
+        """Test finding a rate under a specific service item by its name."""
+        store = self._make_store()
+        rate = store.get_rate_by_name_and_service_item("Weekend Rate", "svc-item-di")
+        self.assertIsNotNone(rate)
+        self.assertEqual(rate["id"], "rate-di-weekend")
+        self.assertEqual(rate["service_item_id"], "svc-item-di")
+
+
 if __name__ == "__main__":
     unittest.main()
