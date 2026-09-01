@@ -97,15 +97,22 @@ push_entries:
 
 edit_entry:
   name: Edit Entry
-  description: Edit a pending entry's description, ticket, rate, or reassign to a different client.
+  description: Edit a pending entry's description, ticket, rate, reassign to a client, or batch update descriptions by client.
   fields:
     entry_id:
       name: Entry ID
-      description: The time entry ID to edit.
-      required: true
+      description: The time entry ID to edit (required for single-entry edit).
+      required: false
       selector:
         number:
           min: 1
+    client_filter:
+      name: Client Filter
+      description: Client short name to apply description to all pending entries (batch edit).
+      required: false
+      example: "LATU"
+      selector:
+        text:
     description:
       name: Description
       description: New description for the time entry.

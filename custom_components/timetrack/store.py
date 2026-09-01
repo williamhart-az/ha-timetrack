@@ -326,6 +326,17 @@ class TimeTrackStore:
             ).rowcount
             if updated:
                 _LOGGER.info("Updated %d pending entries for %s → ticket %s", updated, name, msp_ticket_id)
+        if default_description:
+            updated_desc = conn.execute(
+                """UPDATE time_entries
+                   SET description = ?
+                   WHERE client_name = ?
+                     AND (description IS NULL OR description = '')
+                     AND push_status IN ('pending', 'failed')""",
+                (default_description, name),
+            ).rowcount
+            if updated_desc:
+                _LOGGER.info("Updated %d blank pending entries for %s → default description", updated_desc, name)
         conn.commit()
         conn.close()
 
@@ -1036,6 +1047,20 @@ class TimeTrackStore:
         conn.commit()
         conn.close()
         return True
+
+    def update_client_pending_description(self, client_name: str, description: str) -> int:
+        """Update description for all pending/failed entries for a client."""
+        conn = self._connect()
+        updated = conn.execute(
+            """UPDATE time_entries
+               SET description = ?
+               WHERE client_name = ?
+                 AND push_status IN ('pending', 'failed')""",
+            (description, client_name),
+        ).rowcount
+        conn.commit()
+        conn.close()
+        return updated
 
     def delete_entry(self, entry_id: int) -> bool:
         """Delete a time entry, but only if it hasn't been pushed yet.

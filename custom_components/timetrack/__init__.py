@@ -435,6 +435,22 @@ def _register_services(
         billable = call.data.get("billable")
         rate_id = call.data.get("rate_id")
         new_client = call.data.get("client_name")
+        client_filter = call.data.get("client_filter")
+
+        if client_filter:
+            updated = await hass.async_add_executor_job(
+                store.update_client_pending_description, client_filter, description or ""
+            )
+            _LOGGER.info(
+                "Updated %d pending entries for client %s with description: %s",
+                updated, client_filter, description,
+            )
+            tracker._notify_listeners()
+            return
+
+        if not entry_id:
+            _LOGGER.warning("handle_edit_entry called without entry_id or client_filter")
+            return
 
         # Validate ticket-client association (skip if client is being reassigned)
         if ticket_id and not new_client:
@@ -533,7 +549,8 @@ def _register_services(
     hass.services.async_register(
         DOMAIN, "edit_entry", handle_edit_entry,
         schema=vol.Schema({
-            vol.Required("entry_id"): cv.positive_int,
+            vol.Optional("entry_id"): cv.positive_int,
+            vol.Optional("client_filter"): cv.string,
             vol.Optional("description"): cv.string,
             vol.Optional("ticket_id"): cv.string,
             vol.Optional("billable"): cv.boolean,

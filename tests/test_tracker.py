@@ -510,5 +510,142 @@ class TestSelfHealingRates(unittest.TestCase):
         self.assertEqual(rate["service_item_id"], "svc-item-di")
 
 
+class TestDescriptionBatchAndDefaults(unittest.TestCase):
+    """Test batch description updates and client default description behavior."""
+
+    def setUp(self):
+        self.db_fd, self.db_path = tempfile.mkstemp(suffix=".db")
+        conn = sqlite3.connect(self.db_path)
+        conn.executescript("""
+            CREATE TABLE clients (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                zone_name TEXT NOT NULL,
+                msp_client_name TEXT,
+                msp_ticket_id TEXT,
+                msp_service_item_rate_id TEXT,
+                default_description TEXT,
+                hourly_rate REAL DEFAULT 0,
+                active INTEGER DEFAULT 1,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE time_entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_name TEXT NOT NULL,
+                zone_name TEXT NOT NULL,
+                clock_in TEXT NOT NULL,
+                clock_out TEXT,
+                description TEXT DEFAULT '',
+                source TEXT DEFAULT 'auto',
+                msp_ticket_id TEXT,
+                msp_synced INTEGER DEFAULT 0,
+                push_status TEXT DEFAULT 'pending',
+                msp_rate_id TEXT,
+                raw_hours REAL,
+                rounded_hours REAL,
+                billable INTEGER DEFAULT 1,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        # Seed 3 pending entries for LATU and 1 for CGEC
+        conn.execute(
+            "INSERT INTO time_entries (client_name, zone_name, clock_in, clock_out, description, push_status) VALUES (?, ?, ?, ?, ?, ?)",
+            ("LATU", "TimeTrack - LATU", "2026-08-01T09:00:00", "2026-08-01T11:00:00", "", "pending"),
+        )
+        conn.execute(
+            "INSERT INTO time_entries (client_name, zone_name, clock_in, clock_out, description, push_status) VALUES (?, ?, ?, ?, ?, ?)",
+            ("LATU", "TimeTrack - LATU", "2026-08-02T09:00:00", "2026-08-02T12:00:00", "", "pending"),
+        )
+        conn.execute(
+            "INSERT INTO time_entries (client_name, zone_name, clock_in, clock_out, description, push_status) VALUES (?, ?, ?, ?, ?, ?)",
+            ("LATU", "TimeTrack - LATU", "2026-08-03T09:00:00", "2026-08-03T10:00:00", "", "pending"),
+        )
+        conn.execute(
+            "INSERT INTO time_entries (client_name, zone_name, clock_in, clock_out, description, push_status) VALUES (?, ?, ?, ?, ?, ?)",
+            ("CGEC", "TimeTrack - CGEC", "2026-08-01T13:00:00", "2026-08-01T15:00:00", "Existing CGEC", "pending"),
+        )
+        conn.commit()
+        conn.close()
+
+    def tearDown(self):
+        os.close(self.db_fd)
+        os.unlink(self.db_path)
+
+    def _make_store(self):
+        db_path = self.db_path
+        class MiniStore:
+            def __init__(self):
+                self._db_path = db_path
+
+            def _connect(self):
+                c = sqlite3.connect(self._db_path)
+                c.row_factory = sqlite3.Row
+                return c
+
+            def update_client_pending_description(self, client_name: str, description: str) -> int:
+                conn = self._connect()
+                updated = conn.execute(
+                    """UPDATE time_entries
+                       SET description = ?
+                       WHERE client_name = ?
+                         AND push_status IN ('pending', 'failed')""",
+                    (description, client_name),
+                ).rowcount
+                conn.commit()
+                conn.close()
+                return updated
+
+            def add_client(self, name, zone_name, default_description=None):
+                conn = self._connect()
+                conn.execute(
+                    """INSERT INTO clients (name, zone_name, default_description)
+                       VALUES (?, ?, ?)
+                       ON CONFLICT(name) DO UPDATE SET
+                           default_description = excluded.default_description""",
+                    (name, zone_name, default_description),
+                )
+                if default_description:
+                    conn.execute(
+                        """UPDATE time_entries
+                           SET description = ?
+                           WHERE client_name = ?
+                             AND (description IS NULL OR description = '')
+                             AND push_status IN ('pending', 'failed')""",
+                        (default_description, name),
+                    )
+                conn.commit()
+                conn.close()
+
+        return MiniStore()
+
+    def test_update_client_pending_description(self):
+        """Test applying a description to all pending entries for a specific client."""
+        store = self._make_store()
+        updated = store.update_client_pending_description("LATU", "Onsite Network Support")
+        self.assertEqual(updated, 3)
+
+        conn = sqlite3.connect(self.db_path)
+        rows = conn.execute("SELECT description FROM time_entries WHERE client_name = 'LATU'").fetchall()
+        for r in rows:
+            self.assertEqual(r[0], "Onsite Network Support")
+
+        # Verify CGEC was untouched
+        cgec = conn.execute("SELECT description FROM time_entries WHERE client_name = 'CGEC'").fetchone()
+        self.assertEqual(cgec[0], "Existing CGEC")
+        conn.close()
+
+    def test_add_client_default_description_cascade(self):
+        """Test adding/updating a client with default description cascades to blank pending entries."""
+        store = self._make_store()
+        store.add_client("LATU", "TimeTrack - LATU", default_description="General PC Support")
+
+        conn = sqlite3.connect(self.db_path)
+        rows = conn.execute("SELECT description FROM time_entries WHERE client_name = 'LATU'").fetchall()
+        for r in rows:
+            self.assertEqual(r[0], "General PC Support")
+        conn.close()
+
+
 if __name__ == "__main__":
     unittest.main()
+

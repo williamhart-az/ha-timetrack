@@ -135,6 +135,30 @@ class TimeTrackCard extends HTMLElement {
       this.shadowRoot.innerHTML = "";
       return;
     }
+    // Preserve scroll positions
+    const winScrollY = window.scrollY || document.documentElement?.scrollTop || document.body?.scrollTop || 0;
+    const scrollContainers = [];
+    let p = this;
+    while (p) {
+      if (p.scrollTop && p.scrollTop > 0) {
+        scrollContainers.push({ el: p, top: p.scrollTop, left: p.scrollLeft });
+      }
+      p = p.parentElement || (p.getRootNode && p.getRootNode()?.host);
+    }
+    const tcEl = this.shadowRoot?.querySelector(".tc");
+    const tcScrollTop = tcEl ? tcEl.scrollTop : 0;
+
+    // Preserve active focus and selection
+    const activeEl = this.shadowRoot?.activeElement;
+    const focusState = activeEl ? {
+      eid: activeEl.dataset?.eid,
+      field: activeEl.dataset?.field,
+      bind: activeEl.dataset?.bind,
+      act: activeEl.dataset?.act,
+      start: activeEl.selectionStart,
+      end: activeEl.selectionEnd,
+    } : null;
+
     const isClocked = this._gs("binary_sensor.timetrack_clocked_in")?.state === "on";
     const client = this._gs("sensor.timetrack_current_client")?.state || "";
     const durH = parseFloat(this._gs("sensor.timetrack_current_duration")?.state) || 0;
@@ -177,6 +201,42 @@ class TimeTrackCard extends HTMLElement {
       </ha-card>
     `;
     this._bind();
+
+    // Restore scroll positions and active focus
+    requestAnimationFrame(() => {
+      if (winScrollY) {
+        window.scrollTo({ top: winScrollY, behavior: "instant" });
+      }
+      for (const sc of scrollContainers) {
+        if (sc.el && typeof sc.top === "number") {
+          sc.el.scrollTop = sc.top;
+          if (sc.left) sc.el.scrollLeft = sc.left;
+        }
+      }
+      const newTc = this.shadowRoot.querySelector(".tc");
+      if (newTc && tcScrollTop > 0) {
+        newTc.scrollTop = tcScrollTop;
+      }
+      if (focusState) {
+        let selector = "";
+        if (focusState.eid && focusState.field) {
+          selector = `.inp[data-eid="${focusState.eid}"][data-field="${focusState.field}"]`;
+        } else if (focusState.bind) {
+          selector = `[data-bind="${focusState.bind}"]`;
+        } else if (focusState.act) {
+          selector = `[data-act="${focusState.act}"]`;
+        }
+        if (selector) {
+          const target = this.shadowRoot.querySelector(selector);
+          if (target) {
+            target.focus({ preventScroll: true });
+            if (typeof focusState.start === "number" && typeof focusState.end === "number" && target.setSelectionRange) {
+              try { target.setSelectionRange(focusState.start, focusState.end); } catch (e) {}
+            }
+          }
+        }
+      }
+    });
   }
 
   // ── Header ──
@@ -403,13 +463,16 @@ class TimeTrackCard extends HTMLElement {
     const openTickets = clientTickets.filter(t => t.status === "open");
     const closedTickets = clientTickets.filter(t => t.status !== "open");
 
+    // Look up client default description
+    const clientObj = clients.find(c => c.name === e.client);
+    const clientDefaultDesc = clientObj?.default_description || "";
+
     // Find service_item_id from the selected ticket, or client default
     const currentTicket = tickets.find(t => t.id === e.msp_ticket_id);
     let serviceItemId = "";
     if (currentTicket) {
       serviceItemId = currentTicket.service_item_id;
     } else {
-      const clientObj = clients.find(c => c.name === e.client);
       if (clientObj && clientObj.rate_id) {
         const defaultRate = rates.find(r => r.id === clientObj.rate_id);
         if (defaultRate) {
@@ -457,10 +520,15 @@ class TimeTrackCard extends HTMLElement {
         </div>
 
         <div class="pc-field">
-          <label>Description</label>
+          <div class="pc-field-hdr">
+            <label>Description${!e.description && clientDefaultDesc ? ' <span class="desc-default-hint">(using client default)</span>' : ''}</label>
+            <button class="btn-link" data-act="apply-desc-client" data-eid="${e.id}" data-client="${e.client}" title="Apply description from this entry to all pending ${e.client} entries">
+              📋 Apply to all ${e.client}
+            </button>
+          </div>
           <input type="text" class="inp" value="${(e.description || "").replace(/"/g, "&quot;")}"
-                 placeholder="Add description before push..."
-                 data-eid="${e.id}" data-field="description" />
+                 placeholder="${clientDefaultDesc ? 'Default: ' + clientDefaultDesc.replace(/"/g, '&quot;') : 'Add description before push...'}"
+                 data-eid="${e.id}" data-field="description" data-client="${e.client}" />
         </div>
 
         <div class="pc-field">
@@ -899,16 +967,50 @@ class TimeTrackCard extends HTMLElement {
       this._svc("push_entries", { entry_ids: [parseInt(b.dataset.id)] });
     }));
 
-    // Description editing (blur = save)
-    $(".inp[data-field='description']").forEach(inp => {
+    // Description editing (blur = save, Enter = save and focus next)
+    const descInps = Array.from(this.shadowRoot.querySelectorAll(".inp[data-field='description']"));
+    descInps.forEach((inp, idx) => {
       inp.addEventListener("blur", () => {
-        this._svc("edit_entry", {
-          entry_id: parseInt(inp.dataset.eid),
-          description: inp.value,
-        });
+        const eid = parseInt(inp.dataset.eid);
+        const val = inp.value;
+        if (inp.defaultValue !== val) {
+          inp.defaultValue = val;
+          this._svc("edit_entry", {
+            entry_id: eid,
+            description: val,
+          });
+        }
       });
-      inp.addEventListener("keypress", e => { if (e.key === "Enter") inp.blur(); });
+      inp.addEventListener("keydown", e => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          inp.blur();
+          const nextInp = descInps[idx + 1];
+          if (nextInp) {
+            nextInp.focus();
+            nextInp.select();
+          }
+        }
+      });
     });
+
+    // Apply description to all pending entries for this client
+    $("[data-act='apply-desc-client']").forEach(b => b.addEventListener("click", () => {
+      const eid = b.dataset.eid;
+      const client = b.dataset.client;
+      const inp = this.shadowRoot.querySelector(`.inp[data-eid="${eid}"][data-field="description"]`);
+      const pSensor = this._gs("sensor.timetrack_pending_entries");
+      const clientObj = (pSensor?.attributes?.clients || []).find(c => c.name === client);
+      const val = (inp?.value || "").trim() || clientObj?.default_description || "";
+      if (!val) {
+        alert(`Please enter a description for ${client} first.`);
+        return;
+      }
+      this._svc("edit_entry", {
+        client_filter: client,
+        description: val,
+      });
+    }));
 
     // Ticket dropdown change on pending entries
     $(".ticket-sel").forEach(sel => {
@@ -1237,6 +1339,13 @@ class TimeTrackCard extends HTMLElement {
       .pc-field { margin-bottom: 8px; }
       .pc-field label { display: block; font-size: 11px; color: var(--txd);
                         text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+      .pc-field-hdr { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+      .pc-field-hdr label { margin-bottom: 0; }
+      .desc-default-hint { color: var(--gn); font-size: 0.9em; font-weight: normal; text-transform: none; }
+      .btn-link { background: none; border: none; color: var(--ac); font-size: 11px; font-weight: 500;
+                  cursor: pointer; padding: 2px 6px; border-radius: 4px; transition: background 0.2s;
+                  font-family: inherit; }
+      .btn-link:hover { background: rgba(79,195,247,0.15); text-decoration: underline; }
       .pc-ticket-row { display: flex; align-items: center; gap: 8px; }
       .pc-actions { display: flex; gap: 8px; justify-content: flex-end; align-items: center; margin-top: 4px; }
       .fail-label { font-size: 12px; color: var(--rd); margin-right: auto; }
