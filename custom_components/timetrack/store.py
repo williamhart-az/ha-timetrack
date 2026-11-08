@@ -751,9 +751,39 @@ class TimeTrackStore:
     # ── Time Entry Management ──
 
     def clock_in(self, client: str, zone: str, source: str = "auto") -> TimeEntry:
-        """Create a new open time entry."""
+        """Create a new open time entry.
+
+        If this client already has a closed, unpushed entry today, reopen it
+        instead: the day spans first arrival -> last departure, so gaps such
+        as lunch stay billable (matches generate_entries_from_history).
+        """
         now = datetime.now()
         conn = self._connect()
+        prior = conn.execute(
+            """SELECT * FROM time_entries
+               WHERE client_name = ? AND DATE(clock_in) = ?
+                 AND clock_out IS NOT NULL
+                 AND COALESCE(push_status, 'pending') IN ('pending', 'failed')
+               ORDER BY clock_in DESC LIMIT 1""",
+            (client, now.date().isoformat()),
+        ).fetchone()
+        if prior:
+            conn.execute(
+                """UPDATE time_entries
+                   SET clock_out = NULL, raw_hours = NULL, rounded_hours = NULL
+                   WHERE id = ?""",
+                (prior["id"],),
+            )
+            conn.commit()
+            conn.close()
+            _LOGGER.info(
+                "Re-opened entry #%d for %s (same-day return, gap billable)",
+                prior["id"], client,
+            )
+            return TimeEntry(
+                prior["id"], client, prior["zone_name"],
+                datetime.fromisoformat(prior["clock_in"]), source=prior["source"],
+            )
         cursor = conn.execute(
             """INSERT INTO time_entries (client_name, zone_name, clock_in, source)
                VALUES (?, ?, ?, ?)""",
@@ -1061,6 +1091,65 @@ class TimeTrackStore:
         conn.commit()
         conn.close()
         return updated
+
+    def merge_split_days(
+        self, start_date: str, end_date: str, rounding_minutes: int = 15
+    ) -> dict:
+        """Join same-client, same-day unpushed entries into one span.
+
+        Keeps the earliest entry (first clock_in -> last clock_out, so gaps
+        like lunch are billable) and deletes the rest. Descriptions are
+        joined; the kept entry's ticket wins, else the first non-empty one.
+        Pushed entries are never touched. Returns merged-day/removed counts.
+        """
+        conn = self._connect()
+        rows = conn.execute(
+            """SELECT * FROM time_entries
+               WHERE DATE(clock_in) BETWEEN ? AND ?
+                 AND clock_out IS NOT NULL
+                 AND COALESCE(push_status, 'pending') IN ('pending', 'failed')
+               ORDER BY client_name, clock_in""",
+            (start_date, end_date),
+        ).fetchall()
+        groups: dict = {}
+        for r in rows:
+            groups.setdefault((r["client_name"], r["clock_in"][:10]), []).append(r)
+        days = removed = 0
+        for (client, day), entries in groups.items():
+            if len(entries) < 2:
+                continue
+            keep = entries[0]
+            first_in = datetime.fromisoformat(keep["clock_in"])
+            last_out = max(datetime.fromisoformat(e["clock_out"]) for e in entries)
+            raw = (last_out - first_in).total_seconds() / 3600
+            descs = []
+            for e in entries:
+                d = (e["description"] or "").strip()
+                if d and d not in descs:
+                    descs.append(d)
+            ticket = keep["msp_ticket_id"] or next(
+                (e["msp_ticket_id"] for e in entries if e["msp_ticket_id"]), None
+            )
+            conn.execute(
+                """UPDATE time_entries
+                   SET clock_out = ?, raw_hours = ?, rounded_hours = ?,
+                       description = ?, msp_ticket_id = ?
+                   WHERE id = ?""",
+                (last_out.isoformat(), round(raw, 2),
+                 self._round_hours(raw, rounding_minutes),
+                 "; ".join(descs), ticket, keep["id"]),
+            )
+            for e in entries[1:]:
+                conn.execute("DELETE FROM time_entries WHERE id = ?", (e["id"],))
+                removed += 1
+            days += 1
+            _LOGGER.info(
+                "Merged %d entries for %s on %s into #%d (%.2fh raw)",
+                len(entries), client, day, keep["id"], raw,
+            )
+        conn.commit()
+        conn.close()
+        return {"merged_days": days, "removed_entries": removed}
 
     def delete_entry(self, entry_id: int) -> bool:
         """Delete a time entry, but only if it hasn't been pushed yet.

@@ -785,6 +785,25 @@ def _register_services(
             vol.Required("entry_id"): cv.positive_int,
         }),
     )
+    async def handle_merge_split_days(call: ServiceCall) -> None:
+        """Join same-day split entries so gaps (lunch) are billable."""
+        if not _check_auth(call, authorized_user_id):
+            return
+        result = await hass.async_add_executor_job(
+            store.merge_split_days,
+            str(call.data["start_date"]), str(call.data["end_date"]), rounding_minutes,
+        )
+        _LOGGER.info("merge_split_days: %s", result)
+        hass.bus.async_fire("timetrack_entries_merged", result)
+        tracker._notify_listeners()
+
+    hass.services.async_register(
+        DOMAIN, "merge_split_days", handle_merge_split_days,
+        schema=vol.Schema({
+            vol.Required("start_date"): cv.date,
+            vol.Required("end_date"): cv.date,
+        }),
+    )
     hass.services.async_register(
         DOMAIN, "delete_client", handle_delete_client,
         schema=vol.Schema({
@@ -796,7 +815,7 @@ def _register_services(
         "TimeTrack services registered: clock_in, clock_out, report, "
         "map_client, push_entries, edit_entry, sync_tickets, create_ticket, "
         "generate_entries, add_zone_alias, remove_zone_alias, "
-        "delete_entry, delete_client"
+        "delete_entry, delete_client, merge_split_days"
     )
 
     # Auto-sync active tickets and rates from MSP Manager on startup

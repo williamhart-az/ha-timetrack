@@ -232,3 +232,18 @@ delete_client:
       example: "LAT"
       selector:
         text:
+
+merge_split_days:
+  name: Merge Split Days
+  description: Join pending entries for the same client on the same day into one first-arrival to last-departure entry, so gaps like lunch are billable. Pushed entries are untouched.
+  fields:
+    start_date:
+      name: Start Date
+      required: true
+      selector:
+        date:
+    end_date:
+      name: End Date
+      required: true
+      selector:
+        date:
